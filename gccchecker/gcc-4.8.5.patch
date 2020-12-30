@@ -1,0 +1,108 @@
+/*
+   Copyright (C) 2020. Huawei Technologies Co., Ltd. All rights reserved.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+diff -uprN gcc-4.8.5.org/gcc/config/aarch64/aarch64.c gcc-4.8.5/gcc/config/aarch64/aarch64.c
+--- gcc-4.8.5.org/gcc/config/aarch64/aarch64.c	2020-11-26 01:16:08.827547245 +0000
++++ gcc-4.8.5/gcc/config/aarch64/aarch64.c	2020-12-30 01:57:39.019468219 +0000
+@@ -6061,7 +6061,7 @@ is_mem_p (rtx *x, void *data ATTRIBUTE_U
+ 
+ /*  Return true if mem_insn contains a MEM RTX somewhere in it.  */
+ 
+-static bool
++bool
+ has_memory_op (rtx mem_insn)
+ {
+    rtx pattern = PATTERN (mem_insn);
+diff -uprN gcc-4.8.5.org/gcc/config/aarch64/aarch64.h gcc-4.8.5/gcc/config/aarch64/aarch64.h
+--- gcc-4.8.5.org/gcc/config/aarch64/aarch64.h	2020-11-26 01:16:08.827547245 +0000
++++ gcc-4.8.5/gcc/config/aarch64/aarch64.h	2020-12-30 02:05:44.824070178 +0000
+@@ -472,6 +472,8 @@ enum target_cpus
+     {						\
+       if (aarch64_madd_needs_nop (insn))	\
+         length += 4;				\
++      if (length > 0 && has_memroy_op (insn))	\
++        length += 4;				\
+     } while (0)
+ 
+ #define FINAL_PRESCAN_INSN(INSN, OPVEC, NOPERANDS)	\
+diff -uprN gcc-4.8.5.org/gcc/config/aarch64/aarch64-protos.h gcc-4.8.5/gcc/config/aarch64/aarch64-protos.h
+--- gcc-4.8.5.org/gcc/config/aarch64/aarch64-protos.h	2020-11-26 01:16:08.827547245 +0000
++++ gcc-4.8.5/gcc/config/aarch64/aarch64-protos.h	2020-12-30 02:05:50.196121549 +0000
+@@ -134,6 +134,8 @@ struct tune_params
+   const int memmov_cost;
+ };
+ 
++bool has_memory_op (rtx mem_insn);
++
+ HOST_WIDE_INT aarch64_initial_elimination_offset (unsigned, unsigned);
+ bool aarch64_bitmask_imm (HOST_WIDE_INT val, enum machine_mode);
+ bool aarch64_constant_address_p (rtx);
+diff -uprN gcc-4.8.5.org/gcc/final.c gcc-4.8.5/gcc/final.c
+--- gcc-4.8.5.org/gcc/final.c	2020-11-26 01:16:07.663535657 +0000
++++ gcc-4.8.5/gcc/final.c	2020-12-30 01:58:07.443734277 +0000
+@@ -2534,7 +2534,10 @@ final_scan_insn (rtx insn, FILE *file, i
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s %i \"%s\" 1\n",
+ 			   ASM_COMMENT_START, expanded.line, expanded.file);
++	        fprintf (asm_out_file, "// block start: untyped false, is_mem %s\n",
++	                 has_memory_op (insn) ? "true" : "false");
+ 	        output_asm_insn (string, ops);
++	        fprintf (asm_out_file, "// block end\n");
+ #if HAVE_AS_LINE_ZERO
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s 0 \"\" 2\n", ASM_COMMENT_START);
+@@ -2928,7 +2931,10 @@ final_scan_insn (rtx insn, FILE *file, i
+ 	  }
+ 
+ 	/* Output assembler code from the template.  */
++	fprintf (asm_out_file, "// block start: untyped false, is_mem %s\n",
++	         has_memory_op (insn) ? "true" : "false");
+ 	output_asm_insn (templ, recog_data.operand);
++	fprintf (asm_out_file, "// block end\n");
+ 
+ 	/* Some target machines need to postscan each insn after
+ 	   it is output.  */
+diff -uprN gcc-4.8.5.org/gcc/toplev.c gcc-4.8.5/gcc/toplev.c
+--- gcc-4.8.5.org/gcc/toplev.c	2020-11-26 01:16:07.639535418 +0000
++++ gcc-4.8.5/gcc/toplev.c	2020-12-30 02:06:05.148264570 +0000
+@@ -1799,6 +1799,27 @@ finalize (bool no_backend)
+ 	fatal_error ("error writing to %s: %m", asm_file_name);
+       if (fclose (asm_out_file) != 0)
+ 	fatal_error ("error closing %s: %m", asm_file_name);
++
++      pid_t child = fork();
++      gcc_assert (child != -1);
++      if (child == 0) {
++        if (execlp ("gcctool", "gcctool", asm_file_name, NULL) == -1) {
++          puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++          exit(1);
++        }
++        exit(0);
++      }
++      int status;
++      waitpid (child, &status, 0);
++      if (!WIFEXITED (status)) {
++        puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++      }
++      gcc_assert (WIFEXITED (status));
++      int exit_status = WEXITSTATUS (status);
++      if (exit_status != 0) {
++        printf ("gcctool execute with '%s' failed: maybe change gcctool repair level can fix it.\n", asm_file_name);
++      }
++      gcc_assert (exit_status == 0);
+     }
+ 
+   if (stack_usage_file)
