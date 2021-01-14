@@ -1,0 +1,122 @@
+/*
+   Copyright (C) 2020. Huawei Technologies Co., Ltd. All rights reserved.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+diff -uprN gcc-4.9.3.org/gcc/config/aarch64/aarch64.c gcc-4.9.3/gcc/config/aarch64/aarch64.c
+--- gcc-4.9.3.org/gcc/config/aarch64/aarch64.c	2015-06-16 15:26:41.000000000 +0000
++++ gcc-4.9.3/gcc/config/aarch64/aarch64.c	2021-01-11 03:10:17.792364131 +0000
+@@ -6482,7 +6482,7 @@ is_mem_p (rtx *x, void *data ATTRIBUTE_U
+   return MEM_P (*x);
+ }
+ 
+-static bool
++bool
+ is_memory_op (rtx mem_insn)
+ {
+    rtx pattern = PATTERN (mem_insn);
+diff -uprN gcc-4.9.3.org/gcc/config/aarch64/aarch64.h gcc-4.9.3/gcc/config/aarch64/aarch64.h
+--- gcc-4.9.3.org/gcc/config/aarch64/aarch64.h	2014-10-10 12:42:41.000000000 +0000
++++ gcc-4.9.3/gcc/config/aarch64/aarch64.h	2021-01-14 07:51:19.906836151 +0000
+@@ -483,9 +483,18 @@ enum target_cpus
+ 
+ /* If inserting NOP before a mult-accumulate insn remember to adjust the
+    length so that conditional branching code is updated appropriately.  */
+-#define ADJUST_INSN_LENGTH(insn, length)	\
+-  if (aarch64_madd_needs_nop (insn))		\
+-    length += 4;
++#define ADJUST_INSN_LENGTH(insn, length)			\
++  do {								\
++    if (aarch64_madd_needs_nop (insn))				\
++      length += 4;						\
++    if (length == 0)						\
++      break;							\
++    if (is_memory_op (insn))					\
++      length += 4;						\
++    else if (INSN_P (insn) && recog_memoized (insn) >= 0 &&	\
++             get_attr_type (insn) == TYPE_UNTYPED)		\
++      length += length;						\
++  } while (0)
+ 
+ #define FINAL_PRESCAN_INSN(INSN, OPVEC, NOPERANDS)	\
+     aarch64_final_prescan_insn (INSN);			\
+diff -uprN gcc-4.9.3.org/gcc/config/aarch64/aarch64-protos.h gcc-4.9.3/gcc/config/aarch64/aarch64-protos.h
+--- gcc-4.9.3.org/gcc/config/aarch64/aarch64-protos.h	2015-04-28 16:24:36.000000000 +0000
++++ gcc-4.9.3/gcc/config/aarch64/aarch64-protos.h	2021-01-11 03:10:23.640424289 +0000
+@@ -159,6 +159,7 @@ struct tune_params
+   const int issue_rate;
+ };
+ 
++bool is_memory_op (rtx mem_insn);
+ HOST_WIDE_INT aarch64_initial_elimination_offset (unsigned, unsigned);
+ bool aarch64_bitmask_imm (HOST_WIDE_INT val, enum machine_mode);
+ bool aarch64_cannot_change_mode_class (enum machine_mode,
+diff -uprN gcc-4.9.3.org/gcc/final.c gcc-4.9.3/gcc/final.c
+--- gcc-4.9.3.org/gcc/final.c	2014-02-18 21:16:21.000000000 +0000
++++ gcc-4.9.3/gcc/final.c	2021-01-11 03:18:40.357477523 +0000
+@@ -2589,7 +2589,11 @@ final_scan_insn (rtx insn, FILE *file, i
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s %i \"%s\" 1\n",
+ 			   ASM_COMMENT_START, expanded.line, expanded.file);
++	        fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
++	                 get_attr_type (insn) == TYPE_UNTYPED ? "true" : "false",
++	                 is_memory_op (insn) ? "true" : "false");
+ 	        output_asm_insn (string, ops);
++	        fprintf (asm_out_file, "// block end\n");
+ #if HAVE_AS_LINE_ZERO
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s 0 \"\" 2\n", ASM_COMMENT_START);
+@@ -2983,7 +2987,11 @@ final_scan_insn (rtx insn, FILE *file, i
+ 	  }
+ 
+ 	/* Output assembler code from the template.  */
++	fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
++	         get_attr_type (insn) == TYPE_UNTYPED ? "true" : "false",
++	         is_memory_op (insn) ? "true" : "false");
+ 	output_asm_insn (templ, recog_data.operand);
++	fprintf (asm_out_file, "// block end\n");
+ 
+ 	/* Some target machines need to postscan each insn after
+ 	   it is output.  */
+diff -uprN gcc-4.9.3.org/gcc/toplev.c gcc-4.9.3/gcc/toplev.c
+--- gcc-4.9.3.org/gcc/toplev.c	2014-10-16 13:49:11.000000000 +0000
++++ gcc-4.9.3/gcc/toplev.c	2021-01-11 03:19:43.742116773 +0000
+@@ -1858,6 +1858,27 @@ finalize (bool no_backend)
+ 	fatal_error ("error writing to %s: %m", asm_file_name);
+       if (fclose (asm_out_file) != 0)
+ 	fatal_error ("error closing %s: %m", asm_file_name);
++
++      pid_t child = fork();
++      gcc_assert (child != -1);
++      if (child == 0) {
++        if (execlp ("gcctool", "gcctool", asm_file_name, NULL) == -1) {
++          puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++          exit(1);
++        }
++        exit(0);
++      }
++      int status;
++      waitpid (child, &status, 0);
++      if (!WIFEXITED (status)) {
++        puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++      }
++      gcc_assert (WIFEXITED (status));
++      int exit_status = WEXITSTATUS (status);
++      if (exit_status != 0) {
++        printf ("gcctool execute with '%s' failed: maybe change gcctool repair level can fix it.\n", asm_file_name);
++      }
++      gcc_assert (exit_status == 0);
+     }
+ 
+   if (stack_usage_file)
