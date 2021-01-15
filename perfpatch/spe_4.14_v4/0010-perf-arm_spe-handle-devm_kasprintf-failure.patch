@@ -1,0 +1,57 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 57c315af81863410037ce27ef3bcb17e86049670 Mon Sep 17 00:00:00 2001
+From: Nicholas Mc Guire <hofrat@osadl.org>
+Date: Wed, 28 Nov 2018 12:24:47 +0100
+Subject: [PATCH 10/23] perf: arm_spe: handle devm_kasprintf() failure
+
+devm_kasprintf() may return NULL on failure of internal allocation
+thus the assignment to 'name' is not safe if unchecked. If NULL
+is passed in for name then perf_pmu_register() would not fail
+but rather silently jump to skip_type which is not the intent
+here. As perf_pmu_register() may also return -ENOMEM returning
+-ENOMEM in the (unlikely) failure case of devm_kasprintf() should
+be fine here as well.
+
+Acked-by: Mark Rutland <mark.rutland@arm.com>
+Fixes: d5d9696b0380 ("drivers/perf: Add support for ARMv8.2 Statistical Profiling Extension")
+Signed-off-by: Nicholas Mc Guire <hofrat@osadl.org>
+[will: reworded error message]
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ drivers/perf/arm_spe_pmu.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index 1121c039..c7041db5 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -913,6 +913,11 @@ static int arm_spe_pmu_perf_init(struct arm_spe_pmu *spe_pmu)
+ 
+ 	idx = atomic_inc_return(&pmu_idx);
+ 	name = devm_kasprintf(dev, GFP_KERNEL, "%s_%d", PMUNAME, idx);
++	if (!name) {
++		dev_err(dev, "failed to allocate name for pmu %d\n", idx);
++		return -ENOMEM;
++	}
++
+ 	return perf_pmu_register(&spe_pmu->pmu, name, -1);
+ }
+ 
+-- 
+2.17.1
+

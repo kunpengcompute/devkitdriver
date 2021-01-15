@@ -1,0 +1,57 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 2f453d37bdf76325c5a4dab154634be4f897138c Mon Sep 17 00:00:00 2001
+From: Wolfram Sang <wsa+renesas@sang-engineering.com>
+Date: Thu, 19 Apr 2018 16:06:07 +0200
+Subject: [PATCH 08/23] perf: simplify getting .drvdata
+
+We should get drvdata from struct device directly. Going via
+platform_device is an unneeded step back and forth.
+
+Signed-off-by: Wolfram Sang <wsa+renesas@sang-engineering.com>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ drivers/perf/arm_spe_pmu.c | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index a8342dcc..fbb8b810 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -117,8 +117,7 @@ static ssize_t arm_spe_pmu_cap_show(struct device *dev,
+ 				    struct device_attribute *attr,
+ 				    char *buf)
+ {
+-	struct platform_device *pdev = to_platform_device(dev);
+-	struct arm_spe_pmu *spe_pmu = platform_get_drvdata(pdev);
++	struct arm_spe_pmu *spe_pmu = dev_get_drvdata(dev);
+ 	struct dev_ext_attribute *ea =
+ 		container_of(attr, struct dev_ext_attribute, attr);
+ 	int cap = (long)ea->var;
+@@ -233,8 +232,7 @@ static ssize_t arm_spe_pmu_get_attr_cpumask(struct device *dev,
+ 					    struct device_attribute *attr,
+ 					    char *buf)
+ {
+-	struct platform_device *pdev = to_platform_device(dev);
+-	struct arm_spe_pmu *spe_pmu = platform_get_drvdata(pdev);
++	struct arm_spe_pmu *spe_pmu = dev_get_drvdata(dev);
+ 
+ 	return cpumap_print_to_pagebuf(true, buf, &spe_pmu->supported_cpus);
+ }
+-- 
+2.17.1
+

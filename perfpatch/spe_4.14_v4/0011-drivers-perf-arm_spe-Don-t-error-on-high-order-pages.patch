@@ -1,0 +1,68 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 696325fd0656a0c4b8ffb32bfe75aac41476514c Mon Sep 17 00:00:00 2001
+From: Will Deacon <will.deacon@arm.com>
+Date: Mon, 13 May 2019 17:53:03 +0100
+Subject: [PATCH 11/23] drivers/perf: arm_spe: Don't error on high-order pages
+ for aux buf
+
+Since commit 5768402fd9c6 ("perf/ring_buffer: Use high order allocations
+for AUX buffers optimistically"), the perf core tends to back aux buffer
+allocations with high-order pages with the order encoded in the
+PagePrivate data. The Arm SPE driver explicitly rejects such pages,
+causing the perf tool to fail with:
+
+  | failed to mmap with 12 (Cannot allocate memory)
+
+In actual fact, we can simply treat these pages just like any other
+since the perf core takes care to populate the page array appropriately.
+In theory we could try to map with PMDs where possible, but for now,
+let's just get things working again.
+
+Cc: Alexander Shishkin <alexander.shishkin@linux.intel.com>
+Fixes: 5768402fd9c6 ("perf/ring_buffer: Use high order allocations for AUX buffers optimistically")
+Tested-by: Sudeep Holla <sudeep.holla@arm.com>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ drivers/perf/arm_spe_pmu.c | 10 +---------
+ 1 file changed, 1 insertion(+), 9 deletions(-)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index c7041db5..7fd1e5dd 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -841,16 +841,8 @@ static void *arm_spe_pmu_setup_aux(int cpu, void **pages, int nr_pages,
+ 	if (!pglist)
+ 		goto out_free_buf;
+ 
+-	for (i = 0; i < nr_pages; ++i) {
+-		struct page *page = virt_to_page(pages[i]);
+-
+-		if (PagePrivate(page)) {
+-			pr_warn("unexpected high-order page for auxbuf!");
+-			goto out_free_pglist;
+-		}
+-
++	for (i = 0; i < nr_pages; ++i)
+ 		pglist[i] = virt_to_page(pages[i]);
+-	}
+ 
+ 	buf->base = vmap(pglist, nr_pages, VM_MAP, PAGE_KERNEL);
+ 	if (!buf->base)
+-- 
+2.17.1
+
