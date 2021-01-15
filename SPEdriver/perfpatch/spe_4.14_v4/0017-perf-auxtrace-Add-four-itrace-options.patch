@@ -1,0 +1,150 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 2919cda12b160647d2657cdfd70bca3aebf4e867 Mon Sep 17 00:00:00 2001
+Date: Sat, 30 May 2020 20:24:41 +0800
+Subject: [PATCH 17/23] perf auxtrace: Add four itrace options
+
+This patch is to add four options to synthesize events which are
+described as below:
+
+ 'f': synthesize first level cache events
+ 'm': synthesize last level cache events
+ 't': synthesize TLB events
+ 'a': synthesize remote access events
+
+This four options will be used by ARM SPE as their first consumer.
+
+Tested-by: James Clark <james.clark@arm.com>
+Acked-by: Adrian Hunter <adrian.hunter@intel.com>
+Cc: Al Grant <al.grant@arm.com>
+Cc: Alexander Shishkin <alexander.shishkin@linux.intel.com>
+Cc: Andi Kleen <ak@linux.intel.com>
+Cc: Ian Rogers <irogers@google.com>
+Cc: Jin Yao <yao.jin@linux.intel.com>
+Cc: Jiri Olsa <jolsa@redhat.com>
+Cc: Leo Yan <leo.yan@linaro.org>
+Cc: Mark Rutland <mark.rutland@arm.com>
+Cc: Mathieu Poirier <mathieu.poirier@linaro.org>
+Cc: Mike Leach <mike.leach@linaro.org>
+Cc: Namhyung Kim <namhyung@kernel.org>
+Cc: Peter Zijlstra <peterz@infradead.org>
+Cc: Thomas Gleixner <tglx@linutronix.de>
+Cc: Will Deacon <will@kernel.org>
+Cc: linux-arm-kernel@lists.infradead.org
+Link: http://lore.kernel.org/lkml/20200530122442.490-3-leo.yan@linaro.org
+Signed-off-by: James Clark <james.clark@arm.com>
+Signed-off-by: Leo Yan <leo.yan@linaro.org>
+Signed-off-by: Arnaldo Carvalho de Melo <acme@redhat.com>
+---
+ tools/perf/Documentation/itrace.txt |  6 +++++-
+ tools/perf/util/auxtrace.c          | 16 ++++++++++++++++
+ tools/perf/util/auxtrace.h          |  9 +++++++++
+ 3 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/tools/perf/Documentation/itrace.txt b/tools/perf/Documentation/itrace.txt
+index a3abe04c..7fb163bd 100644
+--- a/tools/perf/Documentation/itrace.txt
++++ b/tools/perf/Documentation/itrace.txt
+@@ -1,5 +1,5 @@
+ 		i	synthesize instructions events
+-		b	synthesize branches events
++		b	synthesize branches events (branch misses for Arm SPE)
+ 		c	synthesize branches events (calls only)
+ 		r	synthesize branches events (returns only)
+ 		x	synthesize transactions events
+@@ -7,6 +7,10 @@
+ 		p	synthesize power events
+ 		e	synthesize error events
+ 		d	create a debug log
++		f	synthesize first level cache events
++		m	synthesize last level cache events
++		t	synthesize TLB events
++		a	synthesize remote access events
+ 		g	synthesize a call chain (use with i or x)
+ 		l	synthesize last branch entries (use with i or x)
+ 		s       skip initial number of events
+diff --git a/tools/perf/util/auxtrace.c b/tools/perf/util/auxtrace.c
+index 92da3981..05c4aa9f 100644
+--- a/tools/perf/util/auxtrace.c
++++ b/tools/perf/util/auxtrace.c
+@@ -968,6 +968,10 @@ void itrace_synth_opts__set_default(struct itrace_synth_opts *synth_opts)
+ 	synth_opts->callchain_sz = PERF_ITRACE_DEFAULT_CALLCHAIN_SZ;
+ 	synth_opts->last_branch_sz = PERF_ITRACE_DEFAULT_LAST_BRANCH_SZ;
+ 	synth_opts->initial_skip = 0;
++	synth_opts->flc = true;
++	synth_opts->llc = true;
++	synth_opts->tlb = true;
++	synth_opts->remote_access = true;
+ }
+ 
+ /*
+@@ -1104,6 +1108,18 @@ int itrace_parse_synth_opts(const struct option *opt, const char *str,
+ 				goto out_err;
+ 			p = endptr;
+ 			break;
++		case 'f':
++			synth_opts->flc = true;
++			break;
++		case 'm':
++			synth_opts->llc = true;
++			break;
++		case 't':
++			synth_opts->tlb = true;
++			break;
++		case 'a':
++			synth_opts->remote_access = true;
++			break;
+ 		case ' ':
+ 		case ',':
+ 			break;
+diff --git a/tools/perf/util/auxtrace.h b/tools/perf/util/auxtrace.h
+index fa1c8def..6fbba967 100644
+--- a/tools/perf/util/auxtrace.h
++++ b/tools/perf/util/auxtrace.h
+@@ -59,6 +59,7 @@ enum itrace_period_type {
+  *          because 'perf inject' will write it out
+  * @instructions: whether to synthesize 'instructions' events
+  * @branches: whether to synthesize 'branches' events
++ *            (branch misses only for Arm SPE)
+  * @transactions: whether to synthesize events for transactions
+  * @ptwrites: whether to synthesize events for ptwrites
+  * @pwr_events: whether to synthesize power events
+@@ -70,6 +71,10 @@ enum itrace_period_type {
+  * @callchain: add callchain to 'instructions' events
+  * @thread_stack: feed branches to the thread_stack
+  * @last_branch: add branch context to 'instruction' events
++ * @flc: whether to synthesize first level cache events
++ * @llc: whether to synthesize last level cache events
++ * @tlb: whether to synthesize TLB events
++ * @remote_access: whether to synthesize remote access events
+  * @callchain_sz: maximum callchain size
+  * @last_branch_sz: branch context size
+  * @period: 'instructions' events period
+@@ -93,6 +98,10 @@ struct itrace_synth_opts {
+ 	bool			callchain;
+ 	bool			thread_stack;
+ 	bool			last_branch;
++	bool			flc;
++	bool			llc;
++	bool			tlb;
++	bool			remote_access;
+ 	unsigned int		callchain_sz;
+ 	unsigned int		last_branch_sz;
+ 	unsigned long long	period;
+-- 
+2.17.1
+

@@ -1,0 +1,60 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From e54df5473219fd439bf263516cee75dd7447e592 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will.deacon@arm.com>
+Date: Mon, 27 Nov 2017 15:49:53 +0000
+Subject: [PATCH 07/23] perf: arm_spe: Fail device probe when
+ arm64_kernel_unmapped_at_el0()
+
+When running with the kernel unmapped whilst at EL0, the virtually-addressed
+SPE buffer is also unmapped, which can lead to buffer faults if userspace
+profiling is enabled and potentially also when writing back kernel samples
+unless an expensive drain operation is performed on exception return.
+
+For now, fail the SPE driver probe when arm64_kernel_unmapped_at_el0().
+
+Reviewed-by: Mark Rutland <mark.rutland@arm.com>
+Tested-by: Laura Abbott <labbott@redhat.com>
+Tested-by: Shanker Donthineni <shankerd@codeaurora.org>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ drivers/perf/arm_spe_pmu.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index 4b598bed..a8342dcc 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -1164,6 +1164,15 @@ static int arm_spe_pmu_device_dt_probe(struct platform_device *pdev)
+ 	struct arm_spe_pmu *spe_pmu;
+ 	struct device *dev = &pdev->dev;
+ 
++	/*
++	 * If kernelspace is unmapped when running at EL0, then the SPE
++	 * buffer will fault and prematurely terminate the AUX session.
++	 */
++	if (arm64_kernel_unmapped_at_el0()) {
++		dev_warn_once(dev, "profiling buffer inaccessible. Try passing \"kpti=off\" on the kernel command line\n");
++		return -EPERM;
++	}
++
+ 	spe_pmu = devm_kzalloc(dev, sizeof(*spe_pmu), GFP_KERNEL);
+ 	if (!spe_pmu) {
+ 		dev_err(dev, "failed to allocate spe_pmu\n");
+-- 
+2.17.1
+

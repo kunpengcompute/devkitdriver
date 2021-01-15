@@ -1,0 +1,60 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From eb2f88626fde98cc5b97a3de034429186dbdf471 Mon Sep 17 00:00:00 2001
+From: Adrian Hunter <adrian.hunter@intel.com>
+Date: Fri, 14 Feb 2020 15:26:53 +0200
+Subject: [PATCH 20/23] perf arm-spe: Fix endless record after being terminated
+
+In __cmd_record(), when receiving SIGINT(ctrl + c), a 'done' flag will
+be set and the event list will be disabled by evlist__disable() once.
+
+While in auxtrace_record.read_finish(), the related events will be
+enabled again, if they are continuous, the recording seems to be
+endless.
+
+If the event is disabled, don't enable it again here.
+
+Signed-off-by: Adrian Hunter <adrian.hunter@intel.com>
+Cc: Jiri Olsa <jolsa@redhat.com>
+Cc: stable@vger.kernel.org # 5.4+
+Link: http://lore.kernel.org/lkml/20200214132654.20395-5-adrian.hunter@intel.com
+Signed-off-by: Arnaldo Carvalho de Melo <acme@redhat.com>
+---
+ tools/perf/arch/arm64/util/arm-spe.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/tools/perf/arch/arm64/util/arm-spe.c b/tools/perf/arch/arm64/util/arm-spe.c
+index 1120e39c..5a0c4316 100644
+--- a/tools/perf/arch/arm64/util/arm-spe.c
++++ b/tools/perf/arch/arm64/util/arm-spe.c
+@@ -162,9 +162,12 @@ static int arm_spe_read_finish(struct auxtrace_record *itr, int idx)
+ 	struct perf_evsel *evsel;
+ 
+ 	evlist__for_each_entry(sper->evlist, evsel) {
+-		if (evsel->attr.type == sper->arm_spe_pmu->type)
++		if (evsel->attr.type == sper->arm_spe_pmu->type) {
++			if (evsel->disabled)
++				return 0;
+ 			return perf_evlist__enable_event_idx(sper->evlist,
+ 							     evsel, idx);
++		}
+ 	}
+ 	return -EINVAL;
+ }
+-- 
+2.17.1
+
