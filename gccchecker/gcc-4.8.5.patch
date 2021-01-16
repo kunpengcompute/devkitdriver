@@ -28,12 +28,12 @@ diff -uprN gcc-4.8.5.org/gcc/config/aarch64/aarch64.c gcc-4.8.5/gcc/config/aarch
     rtx pattern = PATTERN (mem_insn);
 diff -uprN gcc-4.8.5.org/gcc/config/aarch64/aarch64.h gcc-4.8.5/gcc/config/aarch64/aarch64.h
 --- gcc-4.8.5.org/gcc/config/aarch64/aarch64.h	2020-11-26 01:16:08.827547245 +0000
-+++ gcc-4.8.5/gcc/config/aarch64/aarch64.h	2020-12-30 02:05:44.824070178 +0000
++++ gcc-4.8.5/gcc/config/aarch64/aarch64.h	2021-01-14 03:49:42.584159124 +0000
 @@ -472,6 +472,8 @@ enum target_cpus
      {						\
        if (aarch64_madd_needs_nop (insn))	\
          length += 4;				\
-+      if (length > 0 && has_memroy_op (insn))	\
++      if (length > 0 && has_memory_op (insn))	\
 +        length += 4;				\
      } while (0)
  

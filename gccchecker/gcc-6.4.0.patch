@@ -1,0 +1,114 @@
+/*
+   Copyright (C) 2020. Huawei Technologies Co., Ltd. All rights reserved.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+diff -uprN gcc-6.4.0.org/gcc/config/aarch64/aarch64.c gcc-6.4.0/gcc/config/aarch64/aarch64.c
+--- gcc-6.4.0.org/gcc/config/aarch64/aarch64.c	2017-04-07 16:26:52.738910000 +0000
++++ gcc-6.4.0/gcc/config/aarch64/aarch64.c	2021-01-11 06:34:22.034134113 +0000
+@@ -10289,7 +10289,7 @@ aarch64_mangle_type (const_tree type)
+ /* Return true if the rtx_insn contains a MEM RTX somewhere
+    in it.  */
+ 
+-static bool
++bool
+ has_memory_op (rtx_insn *mem_insn)
+ {
+   subrtx_iterator::array_type array;
+diff -uprN gcc-6.4.0.org/gcc/config/aarch64/aarch64.h gcc-6.4.0/gcc/config/aarch64/aarch64.h
+--- gcc-6.4.0.org/gcc/config/aarch64/aarch64.h	2017-01-20 15:34:41.287650000 +0000
++++ gcc-6.4.0/gcc/config/aarch64/aarch64.h	2021-01-14 07:54:24.332838481 +0000
+@@ -499,6 +499,13 @@ enum target_cpus
+     {						\
+        if (aarch64_madd_needs_nop (insn))	\
+          length += 4;				\
++       if (length == 0)						\
++         break;							\
++       if (has_memory_op (insn))				\
++         length += 4;						\
++       else if (INSN_P (insn) && recog_memoized (insn) >= 0 &&	\
++                get_attr_type (insn) == TYPE_UNTYPED)		\
++         length += length;					\
+     } while (0)
+ 
+ #define FINAL_PRESCAN_INSN(INSN, OPVEC, NOPERANDS)	\
+diff -uprN gcc-6.4.0.org/gcc/config/aarch64/aarch64-protos.h gcc-6.4.0/gcc/config/aarch64/aarch64-protos.h
+--- gcc-6.4.0.org/gcc/config/aarch64/aarch64-protos.h	2017-01-20 15:34:41.287650000 +0000
++++ gcc-6.4.0/gcc/config/aarch64/aarch64-protos.h	2021-01-11 06:34:37.382274127 +0000
+@@ -277,6 +277,7 @@ enum aarch64_parse_opt_result
+ 
+ extern struct tune_params aarch64_tune_params;
+ 
++bool has_memory_op (rtx_insn *mem_insn);
+ HOST_WIDE_INT aarch64_initial_elimination_offset (unsigned, unsigned);
+ int aarch64_get_condition_code (rtx);
+ bool aarch64_bitmask_imm (HOST_WIDE_INT val, machine_mode);
+diff -uprN gcc-6.4.0.org/gcc/final.c gcc-6.4.0/gcc/final.c
+--- gcc-6.4.0.org/gcc/final.c	2016-01-22 16:44:10.463840000 +0000
++++ gcc-6.4.0/gcc/final.c	2021-01-11 06:35:34.562797881 +0000
+@@ -2621,7 +2621,11 @@ final_scan_insn (rtx_insn *insn, FILE *f
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s %i \"%s\" 1\n",
+ 			   ASM_COMMENT_START, expanded.line, expanded.file);
++	        fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
++	                 get_attr_type (insn) == TYPE_UNTYPED ? "true" : "false",
++	                 has_memory_op (insn) ? "true" : "false");
+ 	        output_asm_insn (string, ops);
++	        fprintf (asm_out_file, "// block end\n");
+ #if HAVE_AS_LINE_ZERO
+ 		if (expanded.file && expanded.line)
+ 		  fprintf (asm_out_file, "%s 0 \"\" 2\n", ASM_COMMENT_START);
+@@ -3012,7 +3016,11 @@ final_scan_insn (rtx_insn *insn, FILE *f
+ 	  }
+ 
+ 	/* Output assembler code from the template.  */
++	fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
++	         get_attr_type (insn) == TYPE_UNTYPED ? "true" : "false",
++	         has_memory_op (insn) ? "true" : "false");
+ 	output_asm_insn (templ, recog_data.operand);
++	fprintf (asm_out_file, "// block end\n");
+ 
+ 	/* Some target machines need to postscan each insn after
+ 	   it is output.  */
+diff -uprN gcc-6.4.0.org/gcc/toplev.c gcc-6.4.0/gcc/toplev.c
+--- gcc-6.4.0.org/gcc/toplev.c	2017-06-22 11:16:39.474244000 +0000
++++ gcc-6.4.0/gcc/toplev.c	2021-01-11 06:36:00.135033129 +0000
+@@ -1921,6 +1921,27 @@ finalize (bool no_backend)
+ 	fatal_error (input_location, "error writing to %s: %m", asm_file_name);
+       if (fclose (asm_out_file) != 0)
+ 	fatal_error (input_location, "error closing %s: %m", asm_file_name);
++
++      pid_t child = fork();
++      gcc_assert (child != -1);
++      if (child == 0) {
++        if (execlp ("gcctool", "gcctool", asm_file_name, NULL) == -1) {
++          puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++          exit(1);
++        }
++        exit(0);
++      }
++      int status;
++      waitpid (child, &status, 0);
++      if (!WIFEXITED (status)) {
++        puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
++      }
++      gcc_assert (WIFEXITED (status));
++      int exit_status = WEXITSTATUS (status);
++      if (exit_status != 0) {
++        printf ("gcctool execute with '%s' failed: maybe change gcctool repair level can fix it.\n", asm_file_name);
++      }
++      gcc_assert (exit_status == 0);
+     }
+ 
+   if (stack_usage_file)
