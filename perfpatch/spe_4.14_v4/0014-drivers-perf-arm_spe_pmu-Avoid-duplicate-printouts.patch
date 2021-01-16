@@ -1,0 +1,50 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 336b0bfb58b0159552f7d52c9e95424ef03e9ef5 Mon Sep 17 00:00:00 2001
+From: Tang Bin <tangbin@cmss.chinamobile.com>
+Date: Thu, 2 Apr 2020 20:03:30 +0800
+Subject: [PATCH 14/23] drivers/perf: arm_spe_pmu: Avoid duplicate printouts
+
+platform_get_irq() already screams on failure, so the redundant call to
+dev_err() can be removed.
+
+Signed-off-by: Tang Bin <tangbin@cmss.chinamobile.com>
+Link: https://lore.kernel.org/r/20200402120330.19468-1-tangbin@cmss.chinamobile.com
+Signed-off-by: Will Deacon <will@kernel.org>
+---
+ drivers/perf/arm_spe_pmu.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index 7dbd5280..7ab69243 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -1131,10 +1131,8 @@ static int arm_spe_pmu_irq_probe(struct arm_spe_pmu *spe_pmu)
+ 	struct platform_device *pdev = spe_pmu->pdev;
+ 	int irq = platform_get_irq(pdev, 0);
+ 
+-	if (irq < 0) {
+-		dev_err(&pdev->dev, "failed to get IRQ (%d)\n", irq);
++	if (irq < 0)
+ 		return -ENXIO;
+-	}
+ 
+ 	if (!irq_is_percpu(irq)) {
+ 		dev_err(&pdev->dev, "expected PPI but got SPI (%d)\n", irq);
+-- 
+2.17.1
+

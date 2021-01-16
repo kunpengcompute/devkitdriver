@@ -1,0 +1,60 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 99892e1e17a7d4e9a7c29de9410a8e404e4f7133 Mon Sep 17 00:00:00 2001
+From: Will Deacon <will.deacon@arm.com>
+Date: Thu, 22 Sep 2016 11:48:19 +0100
+Subject: [PATCH 03/23] dt-bindings: Document devicetree binding for ARM SPE
+
+This patch documents the devicetree binding in use for ARM SPE.
+
+Cc: Rob Herring <robh@kernel.org>
+Acked-by: Mark Rutland <mark.rutland@arm.com>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ .../devicetree/bindings/arm/spe-pmu.txt       | 20 +++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/arm/spe-pmu.txt
+
+diff --git a/Documentation/devicetree/bindings/arm/spe-pmu.txt b/Documentation/devicetree/bindings/arm/spe-pmu.txt
+new file mode 100644
+index 00000000..93372f2a
+--- /dev/null
++++ b/Documentation/devicetree/bindings/arm/spe-pmu.txt
+@@ -0,0 +1,20 @@
++* ARMv8.2 Statistical Profiling Extension (SPE) Performance Monitor Units (PMU)
++
++ARMv8.2 introduces the optional Statistical Profiling Extension for collecting
++performance sample data using an in-memory trace buffer.
++
++** SPE Required properties:
++
++- compatible : should be one of:
++	       "arm,statistical-profiling-extension-v1"
++
++- interrupts : Exactly 1 PPI must be listed. For heterogeneous systems where
++               SPE is only supported on a subset of the CPUs, please consult
++	       the arm,gic-v3 binding for details on describing a PPI partition.
++
++** Example:
++
++spe-pmu {
++        compatible = "arm,statistical-profiling-extension-v1";
++        interrupts = <GIC_PPI 05 IRQ_TYPE_LEVEL_HIGH &part1>;
++};
+-- 
+2.17.1
+

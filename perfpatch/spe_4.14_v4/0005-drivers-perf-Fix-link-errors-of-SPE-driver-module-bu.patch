@@ -1,0 +1,114 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From c1b9e0da5c2fe2e7575eb771a2dba5480b55ecec Mon Sep 17 00:00:00 2001
+Date: Sat, 25 Jul 2020 17:46:51 +0800
+Subject: [PATCH 05/23] drivers/perf: Fix link errors of SPE driver module
+ building
+
+[root@centos7 linux-4.14.0-115.el7.0.1.aarch64]# make drivers/perf/arm_spe_pmu.ko
+  CHK     include/config/kernel.release
+  CHK     include/generated/uapi/linux/version.h
+  CHK     include/generated/utsrelease.h
+  CHK     include/generated/bounds.h
+  CHK     include/generated/timeconst.h
+  CHK     include/generated/asm-offsets.h
+  CALL    scripts/checksyscalls.sh
+  CHK     scripts/mod/devicetable-offsets.h
+  MODPOST 1453 modules
+ERROR: "irq_get_percpu_devid_partition" [drivers/perf/arm_spe_pmu.ko] undefined!
+ERROR: "perf_aux_output_begin" [drivers/perf/arm_spe_pmu.ko] undefined!
+ERROR: "perf_aux_output_skip" [drivers/perf/arm_spe_pmu.ko] undefined!
+ERROR: "perf_aux_output_end" [drivers/perf/arm_spe_pmu.ko] undefined!
+ERROR: "perf_get_aux" [drivers/perf/arm_spe_pmu.ko] undefined!
+make[1]: *** [__modpost] Error 1
+make: *** [drivers/perf/arm_spe_pmu.ko] Error 2
+
+---
+ drivers/perf/arm_spe_pmu.c | 53 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 53 insertions(+)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index 50511b13..83713abe 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -1216,10 +1216,63 @@ static struct platform_driver arm_spe_pmu_driver = {
+ 	.remove	= arm_spe_pmu_device_remove,
+ };
+ 
++static int (*__irq_get_percpu_devid_partition)(unsigned int irq, struct cpumask *affinity);
++static void *(*__perf_aux_output_begin)(struct perf_output_handle *handle,
++			    struct perf_event *event);
++static int (*__perf_aux_output_skip)(struct perf_output_handle *handle, unsigned long size);
++static void (*__perf_aux_output_end)(struct perf_output_handle *handle, unsigned long size);
++static void *(*__perf_get_aux)(struct perf_output_handle *handle);
++
++__weak int irq_get_percpu_devid_partition(unsigned int irq, struct cpumask *affinity)
++{
++	return __irq_get_percpu_devid_partition(irq, affinity);
++}
++
++__weak void *perf_aux_output_begin(struct perf_output_handle *handle,
++			    struct perf_event *event)
++{
++	return __perf_aux_output_begin(handle, event);
++}
++
++__weak int perf_aux_output_skip(struct perf_output_handle *handle, unsigned long size)
++{
++	return __perf_aux_output_skip(handle, size);
++}
++
++__weak void perf_aux_output_end(struct perf_output_handle *handle, unsigned long size)
++{
++	__perf_aux_output_end(handle, size);
++}
++
++__weak void *perf_get_aux(struct perf_output_handle *handle)
++{
++	return __perf_get_aux(handle);
++}
++
+ static int __init arm_spe_pmu_init(void)
+ {
+ 	int ret;
+ 
++	__irq_get_percpu_devid_partition = (void*)kallsyms_lookup_name("irq_get_percpu_devid_partition");
++	if (!__irq_get_percpu_devid_partition)
++		return -EPERM;
++
++	__perf_aux_output_begin = (void*)kallsyms_lookup_name("perf_aux_output_begin");
++	if (!__perf_aux_output_begin)
++		return -EPERM;
++
++	__perf_aux_output_skip = (void*)kallsyms_lookup_name("perf_aux_output_skip");
++	if (!__perf_aux_output_skip)
++		return -EPERM;
++
++	__perf_aux_output_end = (void*)kallsyms_lookup_name("perf_aux_output_end");
++	if (!__perf_aux_output_end)
++		return -EPERM;
++
++	__perf_get_aux = (void*)kallsyms_lookup_name("perf_get_aux");
++	if (!__perf_get_aux)
++		return -EPERM;
++
+ 	ret = cpuhp_setup_state_multi(CPUHP_AP_ONLINE_DYN, DRVNAME,
+ 				      arm_spe_pmu_cpu_startup,
+ 				      arm_spe_pmu_cpu_teardown);
+-- 
+2.17.1
+

@@ -1,0 +1,46 @@
+Copyright (C) 2020-2021. Huawei Technologies Co., Ltd. All rights reserved.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+From 956efa707e58b38a137c16d6654087c85ab97606 Mon Sep 17 00:00:00 2001
+From: Jeremy Linton <jeremy.linton@arm.com>
+Date: Fri, 12 Oct 2018 14:24:09 -0500
+Subject: [PATCH 09/23] perf: arm_spe: Enable automatic DT loading
+
+When built as a module, the spe driver isn't automatically
+loaded on DT systems. Add the MODULE_DEVICE_TABLE entry.
+
+Reviewed-by: Sudeep Holla <sudeep.holla@arm.com>
+Signed-off-by: Jeremy Linton <jeremy.linton@arm.com>
+Signed-off-by: Will Deacon <will.deacon@arm.com>
+---
+ drivers/perf/arm_spe_pmu.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/perf/arm_spe_pmu.c b/drivers/perf/arm_spe_pmu.c
+index fbb8b810..1121c039 100644
+--- a/drivers/perf/arm_spe_pmu.c
++++ b/drivers/perf/arm_spe_pmu.c
+@@ -1155,6 +1155,7 @@ static const struct of_device_id arm_spe_pmu_of_match[] = {
+ 	{ .compatible = "arm,statistical-profiling-extension-v1", .data = (void *)1 },
+ 	{ /* Sentinel */ },
+ };
++MODULE_DEVICE_TABLE(of, arm_spe_pmu_of_match);
+ 
+ static int arm_spe_pmu_device_dt_probe(struct platform_device *pdev)
+ {
+-- 
+2.17.1
+
