@@ -1,0 +1,1060 @@
+/*
+   Copyright (C) 2020. Huawei Technologies Co., Ltd. All rights reserved.
+
+   This program is free software: you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation, either version 3 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+diff -uparN SVF-SVF-1.9-old/build.sh SVF-SVF-1.9/build.sh
+--- SVF-SVF-1.9-old/build.sh	2020-12-15 19:12:20.170000000 +0800
++++ SVF-SVF-1.9/build.sh	2020-12-15 19:12:42.730000000 +0800
+@@ -41,7 +41,7 @@ else
+ cmake ../
+ fi
+ cmake ../
+-make -j4
++make -j `grep -w processor /proc/cpuinfo|wc -l`
+ 
+ ## set up environment variables of SVF
+ cd ../
+diff -uparN SVF-SVF-1.9-old/CMakeLists.txt SVF-SVF-1.9/CMakeLists.txt
+--- SVF-SVF-1.9-old/CMakeLists.txt	2020-12-15 19:12:20.170000000 +0800
++++ SVF-SVF-1.9/CMakeLists.txt	2020-12-15 19:12:42.730000000 +0800
+@@ -14,7 +14,7 @@ if(NOT COMMAND add_llvm_library)
+ 	if(CMAKE_BUILD_TYPE MATCHES "Debug")
+ 		set(CMAKE_CXX_FLAGS "-fPIC -std=gnu++14 -O0 -fno-rtti")
+ 	else()
+-		set(CMAKE_CXX_FLAGS "-fPIC -std=gnu++14 -O3 -fno-rtti")
++        	set(CMAKE_CXX_FLAGS "-fPIC -fPIE -pie -Wl,-z,relro,-z,now,-z,noexecstack -fstack-protector-all -std=gnu++14 -O3 -Wl,-s -fno-rtti")
+ 	endif()
+ 	set(CMAKE_C_FLAGS "-fPIC")
+ 
+diff -uparN SVF-SVF-1.9-old/include/Graphs/PAGNode.h SVF-SVF-1.9/include/Graphs/PAGNode.h
+--- SVF-SVF-1.9-old/include/Graphs/PAGNode.h	2020-12-15 19:12:20.150000000 +0800
++++ SVF-SVF-1.9/include/Graphs/PAGNode.h	2020-12-15 19:12:42.730000000 +0800
+@@ -80,9 +80,6 @@ public:
+     ///  Get/has methods of the components
+     //@{
+     inline const Value* getValue() const {
+-        assert((this->getNodeKind() != DummyValNode && this->getNodeKind() != DummyObjNode) && "dummy node do not have value!");
+-        assert((this->getId()!=SYMTYPE::BlackHole && this->getId() != SYMTYPE::ConstantObj) && "blackhole and constant obj do not have value");
+-        assert(value && "value is null!!");
+         return value;
+     }
+ 
+diff -uparN SVF-SVF-1.9-old/include/MemoryModel/PointerAnalysis.h SVF-SVF-1.9/include/MemoryModel/PointerAnalysis.h
+--- SVF-SVF-1.9-old/include/MemoryModel/PointerAnalysis.h	2020-12-15 19:12:20.150000000 +0800
++++ SVF-SVF-1.9/include/MemoryModel/PointerAnalysis.h	2020-12-15 19:15:11.000000000 +0800
+@@ -48,6 +48,12 @@ class PTAStat;
+ /*
+  * Pointer Analysis Base Class
+  */
++struct NodeInfo
++{
++    PointsTo pts;
++    bool containBlack;
++};
++
+ class PointerAnalysis {
+ 
+ public:
+@@ -82,6 +88,8 @@ public:
+         Default_PTA		///< default pta without any analysis
+     };
+ 
++
++    std::map<NodeID, NodeInfo*> node_info_map;
+     /// Indirect call edges type, map a callsite to a set of callees
+     //@{
+     typedef llvm::AliasAnalysis AliasAnalysis;
+@@ -222,6 +230,11 @@ public:
+     virtual void dumpPts(NodeID ptr, const PointsTo& pts);
+     void printIndCSTargets();
+     void dumpAllTypes();
++    virtual NodeInfo*  build_node_info(NodeID node1)
++    {
++        return nullptr;
++    }
++    
+     //@}
+ 
+ protected:
+diff -uparN SVF-SVF-1.9-old/include/MemoryModel/PointerAnalysisImpl.h SVF-SVF-1.9/include/MemoryModel/PointerAnalysisImpl.h
+--- SVF-SVF-1.9-old/include/MemoryModel/PointerAnalysisImpl.h	2020-12-15 19:12:20.150000000 +0800
++++ SVF-SVF-1.9/include/MemoryModel/PointerAnalysisImpl.h	2020-12-15 19:12:42.740000000 +0800
+@@ -57,6 +57,8 @@ public:
+         ptD = NULL;
+     }
+ 
++
++
+     /// Get points-to and reverse points-to
+     ///@{
+     virtual inline PointsTo& getPts(NodeID id) {
+@@ -76,6 +78,8 @@ public:
+     virtual bool readFromFile(const std::string& filename);
+     //@}
+ 
++    virtual NodeInfo* build_node_info(NodeID node1);
++
+ protected:
+ 
+     /// Update callgraph. This should be implemented by its subclass.
+diff -uparN SVF-SVF-1.9-old/include/Util/BasicTypes.h SVF-SVF-1.9/include/Util/BasicTypes.h
+--- SVF-SVF-1.9-old/include/Util/BasicTypes.h	2020-12-15 19:12:20.150000000 +0800
++++ SVF-SVF-1.9/include/Util/BasicTypes.h	2020-12-15 19:12:42.740000000 +0800
+@@ -59,6 +59,7 @@
+ #include <llvm/IR/IRBuilder.h>		// for instrument svf.main
+ #include <llvm/Transforms/Utils/Local.h>	// for FindDbgAddrUses
+ #include <llvm/IR/DebugInfo.h>
++#include <llvm/Transforms/Utils/BasicBlockUtils.h>
+ 
+ class BddCond;
+ 
+diff -uparN SVF-SVF-1.9-old/include/WPA/WPAPass.h SVF-SVF-1.9/include/WPA/WPAPass.h
+--- SVF-SVF-1.9-old/include/WPA/WPAPass.h	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/include/WPA/WPAPass.h	2020-12-15 19:14:42.660000000 +0800
+@@ -1,4 +1,4 @@
+-//===- WPAPass.h -- Whole program analysis------------------------------------//
++// ===- WPAPass.h -- Whole program analysis------------------------------------//
+ //
+ //                     SVF: Static Value-Flow Analysis
+ //
+@@ -18,7 +18,7 @@
+ // You should have received a copy of the GNU General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ //
+-//===----------------------------------------------------------------------===//
++// ===----------------------------------------------------------------------===//
+ 
+ 
+ /*
+@@ -36,91 +36,122 @@
+ 
+ #ifndef WPA_H_
+ #define WPA_H_
++#include <iostream>
++#include <mutex>
++#include <unistd.h>
++#include <fstream>
++#include <system_error>
++
++#include <llvm/Support/ThreadPool.h>
++#include "llvm/Support/raw_ostream.h"
++#include "llvm/Support/FileSystem.h"
+ 
+ #include "MemoryModel/PointerAnalysisImpl.h"
++#include "Util/BasicTypes.h"
++#include "Util/SVFModule.h"
++#include "WPA/Andersen.h"
++#include "WPA/AndersenSFR.h"
++#include "WPA/FlowSensitive.h"
++#include "WPA/TypeAnalysis.h"
++
++using namespace std;
+ 
+ class SVFModule;
+ class SVFG;
+ 
+-/*!
++/* !
+  * Whole program pointer analysis.
+  * This class performs various pointer analysis on the given module.
+  */
+ // excised ", public llvm::AliasAnalysis" as that has a very light interface
+ // and I want to see what breaks.
+ class WPAPass {
+-    typedef std::vector<PointerAnalysis*> PTAVector;
++    typedef std::vector<PointerAnalysis *> PTAVector;
+ 
+ public:
+-    /// Pass ID
++    // / Pass ID
+     static char ID;
+ 
+     enum AliasCheckRule {
+-        Conservative,	///< return MayAlias if any pta says alias
+-        Veto,			///< return NoAlias if any pta says no alias
+-        Precise			///< return alias result by the most precise pta
++        Conservative, // /< return MayAlias if any pta says alias
++        Veto,         // /< return NoAlias if any pta says no alias
++        Precise       // /< return alias result by the most precise pta
+     };
+ 
+-    /// Constructor needs TargetLibraryInfo to be passed to the AliasAnalysis
+-    WPAPass()  {
+-
+-    }
++    // / Constructor needs TargetLibraryInfo to be passed to the AliasAnalysis
++    WPAPass() {}
+ 
+-    /// Destructor
++    // / Destructor
+     ~WPAPass();
+ 
+-    /// LLVM analysis usage
+-    virtual inline void getAnalysisUsage(AnalysisUsage &au) const {
++    // / LLVM analysis usage
++    virtual inline void getAnalysisUsage(AnalysisUsage &au) const
++    {
+         // declare your dependencies here.
+-        /// do not intend to change the IR in this pass,
++        // / do not intend to change the IR in this pass,
+         au.setPreservesAll();
+     }
+ 
+-    /// Get adjusted analysis for alias analysis
+-    virtual inline void* getAdjustedAnalysisPointer(AnalysisID id) {
++    // / Get adjusted analysis for alias analysis
++    virtual inline void *getAdjustedAnalysisPointer(AnalysisID id)
++    {
+         return this;
+     }
+ 
+-    /// Interface expose to users of our pointer analysis, given Location infos
+-    virtual inline AliasResult alias(const MemoryLocation  &LocA, const MemoryLocation  &LocB) {
++    // / Interface expose to users of our pointer analysis, given Location infos
++    virtual inline AliasResult alias(const MemoryLocation &LocA, const MemoryLocation &LocB)
++    {
+         return alias(LocA.Ptr, LocB.Ptr);
+     }
+ 
+-    /// Interface expose to users of our pointer analysis, given Value infos
+-    virtual AliasResult alias(const Value* V1,	const Value* V2);
+-
+-    /// Print all alias pairs
+-    virtual void PrintAliasPairs(PointerAnalysis* pta);
++    // / Interface expose to users of our pointer analysis, given Value infos
++    virtual AliasResult alias(const Value *V1, const Value *V2);
+ 
+-    /// Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref any memory location
+-    virtual ModRefInfo getModRefInfo(const CallInst* callInst);
+-
+-    /// Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref a specific memory location, given Location infos
+-    virtual inline ModRefInfo getModRefInfo(const CallInst* callInst, const MemoryLocation& Loc) {
++    // / Print all alias pairs
++    virtual void PrintAliasPairs(Module *module, PointerAnalysis *pta);
++    void writeModuleToBCFile(Module *pBiFModule);
++    static void PrintAliasPairsThread(PAG *pag, PointerAnalysis *pta, ofstream *ofilePointer,
++        vector<llvm::Value*> *litVec, int threadID);
++    void PrintBigFileAliasPairs(Module *module, PointerAnalysis *pta);
++    static void PrintAnAliasPairs(PAGNode *node1, PAGNode *node2, PointerAnalysis *pta, ofstream *ofilePointer);
++    static void PrintAnAliasPairs(PAGNode *node1, PAGNode *node2, PointerAnalysis *pta, ofstream *ofilePointer,
++        string &funStr1);
++    // / Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref any memory location
++    virtual ModRefInfo getModRefInfo(const CallInst *callInst);
++
++    // / Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref a specific memory
++    // location, given Location infos
++    virtual inline ModRefInfo getModRefInfo(const CallInst *callInst, const MemoryLocation &Loc)
++    {
+         return getModRefInfo(callInst, Loc.Ptr);
+     }
+ 
+-    /// Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref a specific memory location, given Value infos
+-    virtual ModRefInfo getModRefInfo(const CallInst* callInst, const Value* V);
++    // / Interface of mod-ref analysis to determine whether a CallSite instruction can mod or ref a specific memory
++    // location, given Value infos
++    virtual ModRefInfo getModRefInfo(const CallInst *callInst, const Value *V);
++
++    // / Interface of mod-ref analysis between two CallSite instructions
++    virtual ModRefInfo getModRefInfo(const CallInst *callInst1, const CallInst *callInst2);
+ 
+-    /// Interface of mod-ref analysis between two CallSite instructions
+-    virtual ModRefInfo getModRefInfo(const CallInst* callInst1, const CallInst* callInst2);
++    // / Run pointer analysis on SVFModule
++    void runOnModule(SVFModule *svfModule);
+ 
+-    /// Run pointer analysis on SVFModule
+-    void runOnModule(SVFModule* svfModule);
++    void runOnModule(SVFModule *svfModule, Module *module);
+ 
+-    /// PTA name
+-    virtual inline StringRef getPassName() const {
++    // / PTA name
++    virtual inline StringRef getPassName() const
++    {
+         return "WPAPass";
+     }
+ 
+ private:
+-    /// Create pointer analysis according to specified kind and analyze the module.
+-    void runPointerAnalysis(SVFModule* svfModule, u32_t kind);
+-
+-    PTAVector ptaVector;	///< all pointer analysis to be executed.
+-    PointerAnalysis* _pta;	///<  pointer analysis to be executed.
+-    SVFG* _svfg;  ///< svfg generated through -ander pointer analysis
++    // / Create pointer analysis according to specified kind and analyze the module.
++    void runPointerAnalysis(SVFModule *svfModule, u32_t kind);
++    void runPointerAnalysis(SVFModule *svfModule, u32_t kind, Module *module);
++
++    PTAVector ptaVector;   // /< all pointer analysis to be executed.
++    PointerAnalysis *_pta; // /<  pointer analysis to be executed.
++    SVFG *_svfg;           // /< svfg generated through -ander pointer analysis
+ };
+ 
+ 
+diff -uparN SVF-SVF-1.9-old/lib/MemoryModel/PointerAnalysisImpl.cpp SVF-SVF-1.9/lib/MemoryModel/PointerAnalysisImpl.cpp
+--- SVF-SVF-1.9-old/lib/MemoryModel/PointerAnalysisImpl.cpp	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/lib/MemoryModel/PointerAnalysisImpl.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -244,11 +244,35 @@ AliasResult BVDataPTAImpl::alias(const V
+     return alias(pag->getValueNode(V1),pag->getValueNode(V2));
+ }
+ 
++
++
++
++
++NodeInfo* BVDataPTAImpl::build_node_info(NodeID node1)
++{
++    NodeInfo *info = new NodeInfo;
++    PointsTo pts1;
++    expandFIObjs(getPts(node1),pts1);
++    info->pts = pts1;
++    info->containBlack = containBlackHoleNode(pts1);
++    return info;
++}
++
+ /*!
+  * Return alias results based on our points-to/alias analysis
+  */
+ AliasResult BVDataPTAImpl::alias(NodeID node1, NodeID node2) {
+-    return alias(getPts(node1),getPts(node2));
++    auto nodeinfo1 = node_info_map[node1];
++    auto nodeinfo2 = node_info_map[node2];
++    if (nodeinfo1->containBlack || nodeinfo2->containBlack || nodeinfo1->pts.intersects(nodeinfo2->pts))
++    {
++        return llvm::MayAlias;
++    }
++    else
++    {
++        return llvm::NoAlias;
++    }
++    // return alias(getPts(node1),getPts(node2));
+ }
+ 
+ /*!
+diff -uparN SVF-SVF-1.9-old/lib/SVF-FE/CHA.cpp SVF-SVF-1.9/lib/SVF-FE/CHA.cpp
+--- SVF-SVF-1.9-old/lib/SVF-FE/CHA.cpp	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/lib/SVF-FE/CHA.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -168,6 +168,10 @@ void CHGraph::buildInternalMaps() {
+ }
+ 
+ void CHGraph::connectInheritEdgeViaCall(const SVFFunction* callerfun, CallSite cs){
++    if (SVFUtil::getCallee(cs) == NULL) {
++        return;
++    }
++
+     const Function* callee = SVFUtil::getCallee(cs)->getLLVMFun();
+     const Function* caller = callerfun->getLLVMFun();
+     if (callee == NULL)
+diff -uparN SVF-SVF-1.9-old/lib/SVF-FE/CPPUtil.cpp SVF-SVF-1.9/lib/SVF-FE/CPPUtil.cpp
+--- SVF-SVF-1.9-old/lib/SVF-FE/CPPUtil.cpp	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/lib/SVF-FE/CPPUtil.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -92,6 +92,9 @@ static string getBeforeParenthesis(const
+ }
+ 
+ string cppUtil::getBeforeBrackets(const string name) {
++    if (name.empty()) {
++        return "";
++    }
+     if (name[name.size() - 1] != '>') {
+         return name;
+     }
+diff -uparN SVF-SVF-1.9-old/lib/Util/PTAStat.cpp SVF-SVF-1.9/lib/Util/PTAStat.cpp
+--- SVF-SVF-1.9-old/lib/Util/PTAStat.cpp	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/lib/Util/PTAStat.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -200,7 +200,7 @@ void PTAStat::performStat() {
+     bitcastInstStat();
+     branchStat();
+ 
+-    printStat("General Stats");
++    // printStat("General Stats");
+ 
+ }
+ 
+@@ -250,7 +250,7 @@ void PTAStat::callgraphStat() {
+     PTNumStatMap["TotalEdge"] = totalEdge;
+     PTNumStatMap["CalRetPairInCycle"] = edgeInCycle;
+ 
+-    PTAStat::printStat("CallGraph Stats");
++    // PTAStat::printStat("CallGraph Stats");
+ 
+     delete callgraphSCC;
+ }
+diff -uparN SVF-SVF-1.9-old/lib/WPA/AndersenStat.cpp SVF-SVF-1.9/lib/WPA/AndersenStat.cpp
+--- SVF-SVF-1.9-old/lib/WPA/AndersenStat.cpp	2020-12-15 19:12:20.170000000 +0800
++++ SVF-SVF-1.9/lib/WPA/AndersenStat.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -205,7 +205,7 @@ void AndersenStat::constraintGraphStat()
+     timeStatMap["AvgIn/OutAddrEdge"] = addravgIn;
+     timeStatMap["AvgIn/OutEdge"] = avgIn;
+ 
+-    PTAStat::printStat("Constraint Graph Stats");
++    // PTAStat::printStat("Constraint Graph Stats");
+ }
+ /*!
+  * Stat null pointers
+@@ -343,6 +343,6 @@ void AndersenStat::performStat() {
+     PTNumStatMap["PointsToConstPtr"] = _NumOfConstantPtr;
+     PTNumStatMap["PointsToBlkPtr"] = _NumOfBlackholePtr;
+ 
+-    PTAStat::printStat("Andersen Pointer Analysis Stats");
++    // PTAStat::printStat("Andersen Pointer Analysis Stats");
+ }
+ 
+diff -uparN SVF-SVF-1.9-old/lib/WPA/WPAPass.cpp SVF-SVF-1.9/lib/WPA/WPAPass.cpp
+--- SVF-SVF-1.9-old/lib/WPA/WPAPass.cpp	2020-12-15 19:12:20.170000000 +0800
++++ SVF-SVF-1.9/lib/WPA/WPAPass.cpp	2020-12-15 19:14:26.640000000 +0800
+@@ -1,4 +1,4 @@
+-//===- WPAPass.cpp -- Whole program analysis pass------------------------------//
++// ===- WPAPass.cpp -- Whole program analysis pass------------------------------//
+ //
+ //                     SVF: Static Value-Flow Analysis
+ //
+@@ -18,7 +18,7 @@
+ // You should have received a copy of the GNU General Public License
+ // along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ //
+-//===-----------------------------------------------------------------------===//
++// ===-----------------------------------------------------------------------===//
+ 
+ /*
+  * @file: WPA.cpp
+@@ -31,84 +31,149 @@
+  * @section DESCRIPTION
+  *
+  */
+-
+-
+-#include "Util/SVFModule.h"
+-#include "MemoryModel/PointerAnalysisImpl.h"
+ #include "WPA/WPAPass.h"
+-#include "WPA/Andersen.h"
+-#include "WPA/AndersenSFR.h"
+-#include "WPA/FlowSensitive.h"
+-#include "WPA/TypeAnalysis.h"
+ 
++using namespace std;
++using namespace llvm;
++constexpr int THREAD_COUNT = 48;
++mutex g_mtxLockCout, g_mtxLockCout1;
+ char WPAPass::ID = 0;
+ 
+-//static llvm::RegisterPass<WPAPass> WHOLEPROGRAMPA("wpa",
++// static llvm::RegisterPass<WPAPass> WHOLEPROGRAMPA("wpa",
+ //        "Whole Program Pointer Analysis Pass");
+ 
+-/// register this into alias analysis group
+-///static RegisterAnalysisGroup<AliasAnalysis> AA_GROUP(WHOLEPROGRAMPA);
++// / register this into alias analysis group
++// /static RegisterAnalysisGroup<AliasAnalysis> AA_GROUP(WHOLEPROGRAMPA);
+ 
+ static llvm::cl::bits<PointerAnalysis::PTATY> PASelected(llvm::cl::desc("Select pointer analysis"),
+-		llvm::cl::values(
+-            clEnumValN(PointerAnalysis::Andersen_WPA, "nander", "Standard inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenLCD_WPA, "lander", "Lazy cycle detection inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenHCD_WPA, "hander", "Hybrid cycle detection inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenHLCD_WPA, "hlander", "Hybrid lazy cycle detection inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenSCD_WPA, "sander", "Selective cycle detection inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenSFR_WPA, "sfrander", "Stride-based field representation includion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenWaveDiff_WPA, "wander", "Wave propagation inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenWaveDiff_WPA, "ander", "Diff wave propagation inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::AndersenWaveDiffWithType_WPA, "andertype", "Diff wave propagation with type inclusion-based analysis"),
+-            clEnumValN(PointerAnalysis::FSSPARSE_WPA, "fspta", "Sparse flow sensitive pointer analysis"),
+-			clEnumValN(PointerAnalysis::TypeCPP_WPA, "type", "Type-based fast analysis for Callgraph, PAG and CHA")
+-        ));
++    llvm::cl::values(clEnumValN(PointerAnalysis::Andersen_WPA, "nander", "Standard inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenLCD_WPA, "lander", "Lazy cycle detection inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenHCD_WPA, "hander", "Hybrid cycle detection inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenHLCD_WPA, "hlander", "Hybrid lazy cycle detection inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenSCD_WPA, "sander", "Selective cycle detection inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenSFR_WPA, "sfrander",
++    "Stride-based field representation includion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenWaveDiff_WPA, "wander", "Wave propagation inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenWaveDiff_WPA, "ander", "Diff wave propagation inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::AndersenWaveDiffWithType_WPA, "andertype",
++    "Diff wave propagation with type inclusion-based analysis"),
++    clEnumValN(PointerAnalysis::FSSPARSE_WPA, "fspta", "Sparse flow sensitive pointer analysis"),
++    clEnumValN(PointerAnalysis::TypeCPP_WPA, "type", "Type-based fast analysis for Callgraph, PAG and CHA")));
+ 
+ 
+ static llvm::cl::bits<WPAPass::AliasCheckRule> AliasRule(llvm::cl::desc("Select alias check rule"),
+-		llvm::cl::values(
+-            clEnumValN(WPAPass::Conservative, "conservative", "return MayAlias if any pta says alias"),
+-            clEnumValN(WPAPass::Veto, "veto", "return NoAlias if any pta says no alias")
+-        ));
++    llvm::cl::values(clEnumValN(WPAPass::Conservative, "conservative", "return MayAlias if any pta says alias"),
++    clEnumValN(WPAPass::Veto, "veto", "return NoAlias if any pta says no alias")));
+ 
+ static llvm::cl::opt<bool> anderSVFG("svfg", llvm::cl::init(false),
+-                        llvm::cl::desc("Generate SVFG after Andersen's Analysis"));
++    llvm::cl::desc("Generate SVFG after Andersen's Analysis"));
+ 
+ static llvm::cl::opt<bool> printAliases("print-aliases", llvm::cl::init(false),
+-                        llvm::cl::desc("Print results for all pair aliases"));
++    llvm::cl::desc("Print results for all pair aliases"));
+ 
+-
+-/*!
++/* !
+  * Destructor
+  */
+-WPAPass::~WPAPass() {
++WPAPass::~WPAPass()
++{
+     PTAVector::const_iterator it = ptaVector.begin();
+     PTAVector::const_iterator eit = ptaVector.end();
+     for (; it != eit; ++it) {
+-        PointerAnalysis* pta = *it;
++        PointerAnalysis *pta = *it;
+         delete pta;
+     }
+     ptaVector.clear();
+ }
+ 
+-/*!
++/* !
+  * We start from here
+  */
+-void WPAPass::runOnModule(SVFModule* svfModule) {
+-    for (u32_t i = 0; i<= PointerAnalysis::Default_PTA; i++) {
++void WPAPass::runOnModule(SVFModule *svfModule)
++{
++    for (u32_t i = 0; i <= PointerAnalysis::Default_PTA; i++) {
+         if (PASelected.isSet(i))
+             runPointerAnalysis(svfModule, i);
+     }
+     assert(!ptaVector.empty() && "No pointer analysis is specified.\n");
+ }
+ 
++/* !
++ * Create pointer analysis according to a specified kind and then analyze the module.
++ */
++void WPAPass::runPointerAnalysis(SVFModule *svfModule, u32_t kind)
++{
++    // / Initialize pointer analysis.
++    switch (kind) {
++        case PointerAnalysis::Andersen_WPA:
++            _pta = new Andersen();
++            break;
++        case PointerAnalysis::AndersenLCD_WPA:
++            _pta = new AndersenLCD();
++            break;
++        case PointerAnalysis::AndersenHCD_WPA:
++            _pta = new AndersenHCD();
++            break;
++        case PointerAnalysis::AndersenHLCD_WPA:
++            _pta = new AndersenHLCD();
++            break;
++        case PointerAnalysis::AndersenSCD_WPA:
++            _pta = new AndersenSCD();
++            break;
++        case PointerAnalysis::AndersenSFR_WPA:
++            _pta = new AndersenSFR();
++            break;
++        case PointerAnalysis::AndersenWaveDiff_WPA:
++            _pta = new AndersenWaveDiff();
++            break;
++        case PointerAnalysis::AndersenWaveDiffWithType_WPA:
++            _pta = new AndersenWaveDiffWithType();
++            break;
++        case PointerAnalysis::FSSPARSE_WPA:
++            _pta = new FlowSensitive();
++            break;
++        case PointerAnalysis::TypeCPP_WPA:
++            _pta = new TypeAnalysis();
++            break;
++        default:
++            assert(false && "This pointer analysis has not been implemented yet.\n");
++            return;
++    }
++
++    ptaVector.push_back(_pta);
++    _pta->analyze(svfModule);
++    if (anderSVFG) {
++        SVFGBuilder memSSA(true);
++        assert(SVFUtil::isa<Andersen>(_pta) && "supports only andersen for pre-computed SVFG");
++        SVFG *svfg = memSSA.buildFullSVFG((BVDataPTAImpl *)_pta);
++        // / support mod-ref queries only for -ander
++        if (PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA))
++            _svfg = svfg;
++        svfg->dump("ander_svfg");
++    }
++
++    if (printAliases)
++        PrintAliasPairs(nullptr, _pta);
++}
++
++/* !
++ * We start from here
++ */
++void WPAPass::runOnModule(SVFModule *svfModule, Module *module)
++{
++    for (u32_t i = 0; i <= PointerAnalysis::Default_PTA; i++) {
++        if (PASelected.isSet(i))
++            runPointerAnalysis(svfModule, i, module);
++    }
+ 
+-/*!
++    assert(!ptaVector.empty() && "No pointer analysis is specified.\n");
++}
++
++/* !
+  * Create pointer analysis according to a specified kind and then analyze the module.
+  */
+-void WPAPass::runPointerAnalysis(SVFModule* svfModule, u32_t kind)
++void WPAPass::runPointerAnalysis(SVFModule *svfModule, u32_t kind, Module *module)
+ {
+-    /// Initialize pointer analysis.
++    // / Initialize pointer analysis.
+     switch (kind) {
+         case PointerAnalysis::Andersen_WPA:
+             _pta = new Andersen();
+@@ -147,74 +212,264 @@ void WPAPass::runPointerAnalysis(SVFModu
+ 
+     ptaVector.push_back(_pta);
+     _pta->analyze(svfModule);
++    writeModuleToBCFile(module);
+     if (anderSVFG) {
+         SVFGBuilder memSSA(true);
+         assert(SVFUtil::isa<Andersen>(_pta) && "supports only andersen for pre-computed SVFG");
+-        SVFG *svfg = memSSA.buildFullSVFG((BVDataPTAImpl*)_pta);
+-        /// support mod-ref queries only for -ander
++        SVFG *svfg = memSSA.buildFullSVFG((BVDataPTAImpl *)_pta);
++        // / support mod-ref queries only for -ander
+         if (PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA))
+             _svfg = svfg;
+         svfg->dump("ander_svfg");
+     }
+ 
+-	if (printAliases)
+-		PrintAliasPairs(_pta);
++    if (printAliases)
++        PrintAliasPairs(module, _pta);
++}
++
++// 保存module文件到可执行程序的路径中
++void WPAPass::writeModuleToBCFile(Module *pBiFModule)
++{
++    llvm::errs() << "--------------- Start write module in file --------------------\n";
++    std::error_code err_code;
++    int iPid = (int)getpid();
++    char szPath[128];
++    int ret = readlink("/proc/self/exe", szPath, sizeof(szPath) - 1);
++    string tmpPath(szPath, ret);
++    std::string::size_type position = tmpPath.rfind('/');
++    std::string exePath = tmpPath.substr(0, position);
++    std::string module_name = exePath + "/module_ll" + to_string(iPid);
++    llvm::errs() << "mudule path is " << module_name << "\n";
++    llvm::StringRef stringRef(module_name);
++    llvm::raw_fd_ostream OS(stringRef, err_code, llvm::sys::fs::F_None);
++    WriteBitcodeToFile(*pBiFModule, OS);
++    OS.flush();
++    llvm::errs() << "--------------- End write module in file --------------------\n";
++}
++
++// 写入每个value的dump信息，containBlack 静态无法确定的符号 信息，PointTo信息，
++// 然后在静态检查工具中调用alias()分析结果
++void WPAPass::PrintAliasPairs(Module *module, PointerAnalysis *pta)
++{
++    if (module == nullptr) {
++        return;
++    }
++    PAG *pag = pta->getPAG();
++    llvm::errs() << "--------------- Start build node info ---------------"
++                 << "\n";
++    PrintBigFileAliasPairs(module, pta);
++    llvm::errs() << "--------------- End build node info ---------------"
++                 << "\n";
++}
++
++void CollectCallInstValues(Instruction *inst, std::vector<llvm::Value *> &values)
++{
++    if (isa<CallInst>(inst) || isa<InvokeInst>(inst)) {
++        for (User::op_iterator opIter = inst->op_begin(); opIter != inst->op_end(); opIter++) {
++            llvm::Value *op = opIter->get();
++            if (op->getValueID() == Value::ConstantPointerNullVal) {
++                continue;
++            }
++            if ((op->getType()->isPointerTy() == true) || (op->getType()->isArrayTy() == true) ||
++                (op->getType()->isPtrOrPtrVectorTy() == true)) {
++                values.push_back(op);
++            }
++        }
++    }
+ }
+ 
+-void WPAPass::PrintAliasPairs(PointerAnalysis* pta) {
+-	PAG* pag = pta->getPAG();
+-	for (PAG::iterator lit = pag->begin(), elit = pag->end(); lit != elit; ++lit) {
+-		PAGNode* node1 = lit->second;
+-		PAGNode* node2 = node1;
+-		for (PAG::iterator rit = lit, erit = pag->end(); rit != erit; ++rit) {
+-			node2 = rit->second;
+-			if(node1==node2)
+-				continue;
+-			const Function* fun1 = node1->getFunction();
+-			const Function* fun2 = node2->getFunction();
+-			AliasResult result = pta->alias(node1->getId(), node2->getId());
+-			SVFUtil::outs()	<< (result == AliasResult::NoAlias ? "NoAlias" : "MayAlias")
+-					<< " var" << node1->getId() << "[" << node1->getValueName()
+-					<< "@" << (fun1==NULL?"":fun1->getName()) << "] --"
+-					<< " var" << node2->getId() << "[" << node2->getValueName()
+-					<< "@" << (fun2==NULL?"":fun2->getName()) << "]\n";
+-		}
+-	}
++void CollectStoreInstValues(Instruction *inst, std::vector<llvm::Value *> &values)
++{
++    StoreInst *storeInst = dyn_cast<StoreInst>(inst);
++    if (storeInst != nullptr) {
++        values.push_back(storeInst->getPointerOperand());
++        if ((storeInst->getValueOperand()->getType()->isPointerTy() == true) ||
++            (storeInst->getValueOperand()->getType()->isArrayTy() == true) ||
++            (storeInst->getValueOperand()->getType()->isPtrOrPtrVectorTy() == true)) {
++            values.push_back(storeInst->getValueOperand());
++        }
++    }
++}
++
++void CollectLoadInstValues(Instruction *inst, std::vector<llvm::Value *> &values)
++{
++    LoadInst *loadInst = dyn_cast<LoadInst>(inst);
++    if (loadInst != nullptr) {
++        values.push_back(loadInst->getPointerOperand());
++        if ((loadInst->getType()->isPointerTy() == true) || (loadInst->getType()->isArrayTy() == true) ||
++            (loadInst->getType()->isPtrOrPtrVectorTy() == true)) {
++            values.push_back(loadInst);
++        }
++    }
++}
++
++void CollectGetElementPtrInstValues(Instruction *inst, std::vector<llvm::Value *> &values)
++{
++    GetElementPtrInst *getEleInst = dyn_cast<GetElementPtrInst>(inst);
++    if (getEleInst != nullptr) {
++        values.push_back(getEleInst);
++        values.push_back(getEleInst->getPointerOperand());
++    }
++}
++
++void CollectAllValues(Instruction *inst, std::vector<llvm::Value *> &values)
++{
++    CollectCallInstValues(inst, values);
++    CollectStoreInstValues(inst, values);
++    CollectLoadInstValues(inst, values);
++    CollectGetElementPtrInstValues(inst, values);
+ }
+ 
+-/*!
++void WPAPass::PrintBigFileAliasPairs(Module *module, PointerAnalysis *pta)
++{
++    PAG *pag = pta->getPAG();
++    ofstream ofile;
++    int iPid = (int)getpid();
++    llvm::errs() << "--------------- Start Write alias ---------------"
++                 << "\n";
++
++    // 保存alias.txt文件到可执行程序的路径中
++    char szPath[128];
++    int ret = readlink("/proc/self/exe", szPath, sizeof(szPath) - 1);
++    string tmpPath(szPath, ret);
++    std::string::size_type position = tmpPath.rfind('/');
++    std::string exePath = tmpPath.substr(0, position);
++    llvm::errs() << "alias path is " << exePath + "/alias" + to_string(iPid) + ".txt"
++                 << "\n";
++    ofile.open(exePath + "/alias" + to_string(iPid) + ".txt", ios::out);
++
++    // 获取想要输出的value
++    std::vector<llvm::Value *> values;
++    for (llvm::Module::global_iterator globalIter = module->global_begin(); globalIter != module->global_end();
++        globalIter++) {
++        llvm::GlobalVariable *globalVar = &*globalIter;
++        values.push_back(globalVar);
++    }
++    for (llvm::Module::iterator funcIter = module->begin(); funcIter != module->end(); funcIter++) {
++        llvm::Function *f = &*funcIter;
++        values.push_back(f);
++        for (llvm::Function::iterator bbIter = f->begin(); bbIter != f->end(); bbIter++) {
++            llvm::BasicBlock *b = &*bbIter;
++            for (llvm::BasicBlock::iterator instIter = b->begin(); instIter != b->end(); instIter++) {
++                llvm::Instruction *inst = &*instIter;
++                values.push_back(inst);
++
++                CollectAllValues(inst, values);
++            }
++        }
++    }
++
++    std::vector<vector<llvm::Value *>> threadPAGPool;
++    for (int i = 0; i < THREAD_COUNT; i++) {
++        std::vector<llvm::Value *> tmp;
++        threadPAGPool.push_back(tmp);
++    }
++
++    // divide pag
++    long int valueIndex = 0;
++    int index;
++    for (valueIndex = 0; valueIndex < values.size(); ++valueIndex) {
++        index = static_cast<int>(valueIndex % THREAD_COUNT);
++        threadPAGPool[index].push_back(values[valueIndex]);
++    }
++
++    llvm::errs() << "---------- threadPAGPool size is:" << threadPAGPool.size() << "            pagNode size is: " <<
++        valueIndex << "--------------------"
++                 << "\n";
++
++    ThreadPool thread_pool(THREAD_COUNT);
++    for (unsigned int ii = 0; ii < THREAD_COUNT; ii++) {
++        thread_pool.async(PrintAliasPairsThread, pag, pta, &ofile, &(threadPAGPool[ii]), ii);
++    }
++    thread_pool.wait();
++
++    llvm::errs() << "--------------- End Write alias ---------------"
++                 << "\n";
++    ofile.close();
++}
++
++void WPAPass::PrintAliasPairsThread(PAG *pag, PointerAnalysis *pta, ofstream *ofilePointer,
++    vector<llvm::Value *> *litVec, int threadID)
++{
++    g_mtxLockCout.lock();
++    llvm::errs() << "-------------- The " << threadID << "th thread start! ----------------"
++                 << "\n";
++    g_mtxLockCout.unlock();
++    for (auto lit = litVec->begin(), elit = litVec->end(); lit != elit; ++lit) {
++        // build all node info
++        auto nodeID = pag->getValueNode(*lit);
++        auto nodeinfo1 = pta->build_node_info(nodeID);
++        // get dump
++        PAGNode *node1 = pag->getPAGNode(nodeID);
++        const Value *v1 = *lit;
++        const Function *fun1 = node1->getFunction();
++        std::string str1;
++        llvm::raw_string_ostream rso1(str1);
++        if (v1 == NULL) {
++            str1 = "";
++        } else if (llvm::isa_impl<Function, Value>::doit(*v1)) {
++            str1 = fun1 == NULL ? "" : fun1->getName();
++        } else {
++            v1->print(rso1);
++        }
++        std::string tmpStr = fun1 == NULL ? "" : fun1->getName();
++        std::string funStr1 = tmpStr + " " + str1;
++        // get sparseBitVec
++        std::string sparseBitVec;
++        bool isSaveNode = false; // 如果SparseBitVector大于0，则保存node到文件中
++        for (llvm::SparseBitVector<>::iterator iter = nodeinfo1->pts.begin(); iter != nodeinfo1->pts.end(); iter++) {
++            unsigned heap_node_indx = (*iter);
++            isSaveNode = true;
++            sparseBitVec += to_string(heap_node_indx);
++            sparseBitVec += "_";
++        }
++
++        g_mtxLockCout.lock();
++        if (isSaveNode) {
++            (*ofilePointer) << "Dump" << node1->getId() << "&" << funStr1 << "&" << nodeinfo1->containBlack << "&" <<
++                sparseBitVec << "\n";
++            (*ofilePointer).flush();
++        }
++        g_mtxLockCout.unlock();
++    }
++
++    g_mtxLockCout.lock();
++    llvm::errs() << "-------------- The " << threadID << "th thread is end! "
++                 << " ----------------"
++                 << "\n";
++    g_mtxLockCout.unlock();
++}
++
++/* !
+  * Return alias results based on our points-to/alias analysis
+  * TODO: Need to handle PartialAlias and MustAlias here.
+  */
+-AliasResult WPAPass::alias(const Value* V1, const Value* V2) {
+-
++AliasResult WPAPass::alias(const Value *V1, const Value *V2)
++{
+     AliasResult result = llvm::MayAlias;
+ 
+-    PAG* pag = _pta->getPAG();
++    PAG *pag = _pta->getPAG();
+ 
+-    /// TODO: When this method is invoked during compiler optimizations, the IR
+-    ///       used for pointer analysis may been changed, so some Values may not
+-    ///       find corresponding PAG node. In this case, we only check alias
+-    ///       between two Values if they both have PAG nodes. Otherwise, MayAlias
+-    ///       will be returned.
++    // / TODO: When this method is invoked during compiler optimizations, the IR
++    // /       used for pointer analysis may been changed, so some Values may not
++    // /       find corresponding PAG node. In this case, we only check alias
++    // /       between two Values if they both have PAG nodes. Otherwise, MayAlias
++    // /       will be returned.
+     if (pag->hasValueNode(V1) && pag->hasValueNode(V2)) {
+-        /// Veto is used by default
++        // / Veto is used by default
+         if (AliasRule.getBits() == 0 || AliasRule.isSet(Veto)) {
+-            /// Return NoAlias if any PTA gives NoAlias result
++            // / Return NoAlias if any PTA gives NoAlias result
+             result = llvm::MayAlias;
+ 
+-            for (PTAVector::const_iterator it = ptaVector.begin(), eit = ptaVector.end();
+-                    it != eit; ++it) {
++            for (PTAVector::const_iterator it = ptaVector.begin(), eit = ptaVector.end(); it != eit; ++it) {
+                 if ((*it)->alias(V1, V2) == llvm::NoAlias)
+                     result = llvm::NoAlias;
+             }
+-        }
+-        else if (AliasRule.isSet(Conservative)) {
+-            /// Return MayAlias if any PTA gives MayAlias result
++        } else if (AliasRule.isSet(Conservative)) {
++            // / Return MayAlias if any PTA gives MayAlias result
+             result = llvm::NoAlias;
+ 
+-            for (PTAVector::const_iterator it = ptaVector.begin(), eit = ptaVector.end();
+-                    it != eit; ++it) {
++            for (PTAVector::const_iterator it = ptaVector.begin(), eit = ptaVector.end(); it != eit; ++it) {
+                 if ((*it)->alias(V1, V2) == llvm::MayAlias)
+                     result = llvm::MayAlias;
+             }
+@@ -224,33 +479,39 @@ AliasResult WPAPass::alias(const Value*
+     return result;
+ }
+ 
+-/*!
++/* !
+  * Return mod-ref result of a CallInst
+  */
+-ModRefInfo WPAPass::getModRefInfo(const CallInst* callInst) {
+-    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG && "mod-ref query is only support with -ander and -svfg turned on");
+-    ICFG* icfg = _svfg->getPAG()->getICFG();
+-    const CallBlockNode* cbn = icfg->getCallBlockNode(callInst);
++ModRefInfo WPAPass::getModRefInfo(const CallInst *callInst)
++{
++    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG &&
++        "mod-ref query is only support with -ander and -svfg turned on");
++    ICFG *icfg = _svfg->getPAG()->getICFG();
++    const CallBlockNode *cbn = icfg->getCallBlockNode(callInst);
+     return _svfg->getMSSA()->getMRGenerator()->getModRefInfo(cbn);
+ }
+ 
+-/*!
++/* !
+  * Return mod-ref results of a CallInst to a specific memory location
+  */
+-ModRefInfo WPAPass::getModRefInfo(const CallInst* callInst, const Value* V) {
+-    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG && "mod-ref query is only support with -ander and -svfg turned on");
+-    ICFG* icfg = _svfg->getPAG()->getICFG();
+-    const CallBlockNode* cbn = icfg->getCallBlockNode(callInst);
++ModRefInfo WPAPass::getModRefInfo(const CallInst *callInst, const Value *V)
++{
++    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG &&
++        "mod-ref query is only support with -ander and -svfg turned on");
++    ICFG *icfg = _svfg->getPAG()->getICFG();
++    const CallBlockNode *cbn = icfg->getCallBlockNode(callInst);
+     return _svfg->getMSSA()->getMRGenerator()->getModRefInfo(cbn, V);
+ }
+ 
+-/*!
++/* !
+  * Return mod-ref result between two CallInsts
+  */
+-ModRefInfo WPAPass::getModRefInfo(const CallInst* callInst1, const CallInst* callInst2) {
+-    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG && "mod-ref query is only support with -ander and -svfg turned on");
+-    ICFG* icfg = _svfg->getPAG()->getICFG();
+-    const CallBlockNode* cbn1 = icfg->getCallBlockNode(callInst1);
+-    const CallBlockNode* cbn2 = icfg->getCallBlockNode(callInst2);
++ModRefInfo WPAPass::getModRefInfo(const CallInst *callInst1, const CallInst *callInst2)
++{
++    assert(PASelected.isSet(PointerAnalysis::AndersenWaveDiff_WPA) && anderSVFG &&
++        "mod-ref query is only support with -ander and -svfg turned on");
++    ICFG *icfg = _svfg->getPAG()->getICFG();
++    const CallBlockNode *cbn1 = icfg->getCallBlockNode(callInst1);
++    const CallBlockNode *cbn2 = icfg->getCallBlockNode(callInst2);
+     return _svfg->getMSSA()->getMRGenerator()->getModRefInfo(cbn1, cbn2);
+ }
+diff -uparN SVF-SVF-1.9-old/tools/WPA/wpa.cpp SVF-SVF-1.9/tools/WPA/wpa.cpp
+--- SVF-SVF-1.9-old/tools/WPA/wpa.cpp	2020-12-15 19:12:20.160000000 +0800
++++ SVF-SVF-1.9/tools/WPA/wpa.cpp	2020-12-15 19:12:42.740000000 +0800
+@@ -36,19 +36,72 @@ static llvm::cl::opt<std::string> InputF
+         llvm::cl::desc("<input bitcode>"), llvm::cl::init("-"));
+ 
+ 
++void OptModule(Module *module)
++{
++    for (Module::iterator iter = module->begin(); iter != module->end(); iter++) {
++        llvm::Function *F = &*iter;
++        for (Function::iterator bb_iter = F->begin(); bb_iter != F->end(); bb_iter++) {
++            llvm::BasicBlock *bb_node = &*bb_iter;
++            bool replaceAll = false;
++            while (!replaceAll) {
++                replaceAll = true;
++                for (BasicBlock::iterator inst_iter = bb_node->begin(); inst_iter != bb_node->end(); inst_iter++) {
++                    llvm::Instruction *I = &*inst_iter;
++
++                    if (!isa<PtrToIntInst>(*I)) {
++                        continue;
++                    }
++                    vector<llvm::Instruction *> toErase;
++                    toErase.push_back(I);
++                    auto srcVal = cast<PtrToIntInst>(I)->getPointerOperand();
++
++                    inst_iter++;
++                    I = &*inst_iter;
++                    if (!isa<BinaryOperator>(I)) {
++                        continue;
++                    }
++                    toErase.push_back(I);
++
++                    inst_iter++;
++                    I = &*inst_iter;
++                    if (!isa<IntToPtrInst>(I)) {
++                        continue;
++                    }
++                    toErase.push_back(I);
++                    auto targetType = cast<IntToPtrInst>(I)->getDestTy();
++
++                    auto *bitcastInst = new llvm::BitCastInst(srcVal, targetType);
++
++                    errs() << "Find Offset: " << I->getFunction()->getName() << "\n";
++                    errs() << "Replace Instruction: " << *I << "\n";
++                    errs() << "With               : " << *bitcastInst << "\n";
++
++                    llvm::ReplaceInstWithInst(I, bitcastInst);
++                    replaceAll = false;
++                    break;
++                }
++            }
++        }
++    }
++}
++
+ int main(int argc, char ** argv) {
+ 
+     int arg_num = 0;
+     char **arg_value = new char*[argc];
++
+     std::vector<std::string> moduleNameVec;
+     SVFUtil::processArguments(argc, argv, arg_num, arg_value, moduleNameVec);
+     cl::ParseCommandLineOptions(arg_num, arg_value,
+                                 "Whole Program Points-to Analysis\n");
+ 
+     SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(moduleNameVec);
++    Module *module = LLVMModuleSet::getLLVMModuleSet()->getModule(LLVMModuleSet::getLLVMModuleSet()->getModuleNum()-1);
++
++    OptModule(module);
+ 
+     WPAPass *wpa = new WPAPass();
+-    wpa->runOnModule(svfModule);
++    wpa->runOnModule(svfModule, module);
+ 
+     return 0;
+ }

@@ -1,2 +1,2 @@
 # devkitdriver
-A group of dependent drivers for DevKit.
+A group of dependency drivers for DevKit.
