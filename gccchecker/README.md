@@ -3,9 +3,33 @@ Apply the patch and compile GCC, fix the weak memory ordering bugs while compile
 
 ## Supported OSs and GCC Versions ##
 
-- CentOS 7.6/7.7: GCC 4.8.5,7.3.0,7.4.0,8.3.0
-- CentOS 8.0/8.1: GCC 8.3.0
-- Ubuntu 18.04.1: GCC 7.3.0
+#### CentOS 7.6/7.7 / NeoKylin V7U6 / BC-Linux 7.6/7.7 ####
+
+4.8.5/4.9.3/5.1.0/5.2.0/5.3.0/5.4.0/5.5.0/6.1.0/6.2.0/6.3.0/6.4.0/6.5.0/7.1.0/7.2.0/7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
+
+#### Linx 6.0.90 / Deepin 15.2 ####
+
+6.3.0/6.4.0/6.5.0/7.1.0/7.2.0/7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
+
+#### Ubuntu 18.04.x / openEuler 20.03 / Kylin V10 / iSoft 5.1 / uosEuler 20 ####
+
+7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
+
+#### SUSE SLES15.1 ####
+
+7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
+
+#### CentOS 8.0 ####
+
+8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
+
+#### CentOS 8.1/8.2 / Debian 10 / UOS 20 ####
+
+8.3.0/9.1.0/9.2.0/9.3.0
+
+#### Ubuntu 20.04.x ####
+
+9.3.0
 
 ## Prerequisites ##
 
@@ -19,7 +43,8 @@ Apply the patch and compile GCC, fix the weak memory ordering bugs while compile
 #### 1. Download required software packages. ####
 
    - GCC source code: https://gcc.gnu.org/(Download the source code of the corresponding version from the official GCC website.)
-   - GCC repair tool patch: https://github.com/kunpengcompute/gcctools/(Download the patch of the corresponding GCC version.)
+   - GCC repair tool patch: https://github.com/kunpengcompute/devkitdriver/tree/main/gccchecker/ (Download the patch of the corresponding GCC version.).
+     For example, you can find the patch for GCC 4.8.5 in https://github.com/kunpengcompute/devkitdriver/tree/main/gccchecker/gcc-4.8.5.patch
    - Weak memory ordering repair component from Porting-Advisor-xxx.tar.gz
    - libstdc++6.so dependency library: http://ftp.cn.debian.org/debian/pool/main/g/gcc-7/libstdc++6-7-dbg_7.4.0-6_arm64.deb(for Debian and Red Hat OSs)
 

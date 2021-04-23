@@ -60,7 +60,7 @@ diff -uprN gcc-9.3.0.org/gcc/final.c gcc-9.3.0/gcc/final.c
  	   it is output.  */
 diff -uprN gcc-9.3.0.org/gcc/toplev.c gcc-9.3.0/gcc/toplev.c
 --- gcc-9.3.0.org/gcc/toplev.c	2020-03-12 11:07:23.000000000 +0000
-+++ gcc-9.3.0/gcc/toplev.c	2021-01-11 06:59:31.360656668 +0000
++++ gcc-9.3.0/gcc/toplev.c	2021-02-19 02:25:11.305670024 +0000
 @@ -2073,6 +2073,28 @@ finalize (bool no_backend)
  	fatal_error (input_location, "error writing to %s: %m", asm_file_name);
        if (fclose (asm_out_file) != 0)
@@ -69,7 +69,7 @@ diff -uprN gcc-9.3.0.org/gcc/toplev.c gcc-9.3.0/gcc/toplev.c
 +      pid_t child = fork();
 +      gcc_assert (child != -1);
 +      if (child == 0) {
-+        if (execlp ("gcctool", "gcctool", asm_file_name, NULL) == -1) {
++        if (execlp ("gcctool", "gcctool", main_input_filename, asm_file_name, NULL) == -1) {
 +          puts ("gcctool execute failed: please check if gcctool is executable, run 'gcctool'");
 +          exit(1);
 +        }
