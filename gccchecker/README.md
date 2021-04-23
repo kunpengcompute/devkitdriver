@@ -3,7 +3,7 @@ Apply the patch and compile GCC, fix the weak memory ordering bugs while compile
 
 ## Supported OSs and GCC Versions ##
 
-#### CentOS 7.6/7.7 / NeoKylin V7U6 ####
+#### CentOS 7.6/7.7 / NeoKylin V7U6 / BC-Linux 7.6/7.7 ####
 
 4.8.5/4.9.3/5.1.0/5.2.0/5.3.0/5.4.0/5.5.0/6.1.0/6.2.0/6.3.0/6.4.0/6.5.0/7.1.0/7.2.0/7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
 
@@ -11,7 +11,7 @@ Apply the patch and compile GCC, fix the weak memory ordering bugs while compile
 
 6.3.0/6.4.0/6.5.0/7.1.0/7.2.0/7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
 
-#### Ubuntu 18.04.1 / openEuler 20.03 / Kylin V10 ####
+#### Ubuntu 18.04.x / openEuler 20.03 / Kylin V10 / iSoft 5.1 / uosEuler 20 ####
 
 7.3.0/7.4.0/8.1.0/8.2.0/8.3.0/9.1.0/9.2.0/9.3.0
 
@@ -27,7 +27,7 @@ Apply the patch and compile GCC, fix the weak memory ordering bugs while compile
 
 8.3.0/9.1.0/9.2.0/9.3.0
 
-#### Ubuntu 20.04.1 ####
+#### Ubuntu 20.04.x ####
 
 9.3.0
 
