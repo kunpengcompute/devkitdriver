@@ -1,6 +1,6 @@
 
 KERNELDIR ?= /lib/modules/`uname -r`/build
-
+EXTRA_CFLAGS := -fstack-protector-all
 #EXTRA_CFLAGS += -O1
 
 ifeq ($(KERNELRELEASE),)
