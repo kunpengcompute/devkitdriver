@@ -1,4 +1,5 @@
 KDIR := /lib/modules/$(shell uname -r)/build/
+EXTRA_CFLAGS := -fstack-protector-all
 #KDIR :=/home/liu/linux-4.14.0-115.el7a
 PWD := $(shell pwd)
 obj-m += arm_spe_pmu.o
