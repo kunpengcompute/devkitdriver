@@ -15,9 +15,15 @@
    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 diff -uprN gcc-9.3.0.org/gcc/config/aarch64/aarch64.h gcc-9.3.0/gcc/config/aarch64/aarch64.h
---- gcc-9.3.0.org/gcc/config/aarch64/aarch64.h	2020-03-12 11:07:21.000000000 +0000
-+++ gcc-9.3.0/gcc/config/aarch64/aarch64.h	2021-01-11 06:57:44.211542185 +0000
-@@ -646,6 +646,13 @@ enum target_cpus
+--- gcc-9.3.0.org/gcc/config/aarch64/aarch64.h	2020-03-12 07:07:21.000000000 -0400
++++ gcc-9.3.0/gcc/config/aarch64/aarch64.h	2023-09-07 00:23:07.384241160 -0400
+@@ -641,12 +641,28 @@ enum target_cpus
+ 
+ /* If inserting NOP before a mult-accumulate insn remember to adjust the
+    length so that conditional branching code is updated appropriately.  */
++#ifdef __aarch64__
+ #define ADJUST_INSN_LENGTH(insn, length)	\
+   do						\
      {						\
         if (aarch64_madd_needs_nop (insn))	\
           length += 4;				\
@@ -28,44 +34,61 @@ diff -uprN gcc-9.3.0.org/gcc/config/aarch64/aarch64.h gcc-9.3.0/gcc/config/aarch
 +       else if (INSN_P (insn) && recog_memoized (insn) >= 0 &&	\
 +                get_attr_type (insn) == TYPE_UNTYPED)		\
 +         length += length;			\
++    } while (0)
++#else
++#define ADJUST_INSN_LENGTH(insn, length)        \
++  do                                            \
++    {                                           \
++       if (aarch64_madd_needs_nop (insn))       \
++         length += 4;                           \
      } while (0)
++#endif
  
  #define FINAL_PRESCAN_INSN(INSN, OPVEC, NOPERANDS)	\
+     aarch64_final_prescan_insn (INSN);			\
 diff -uprN gcc-9.3.0.org/gcc/final.c gcc-9.3.0/gcc/final.c
---- gcc-9.3.0.org/gcc/final.c	2020-03-12 11:07:21.000000000 +0000
-+++ gcc-9.3.0/gcc/final.c	2021-01-11 06:59:12.424460703 +0000
-@@ -2713,7 +2713,11 @@ final_scan_insn_1 (rtx_insn *insn, FILE
+--- gcc-9.3.0.org/gcc/final.c	2020-03-12 07:07:21.000000000 -0400
++++ gcc-9.3.0/gcc/final.c	2023-09-07 00:24:56.494241160 -0400
+@@ -2713,7 +2713,15 @@ final_scan_insn_1 (rtx_insn *insn, FILE
  		if (expanded.file && expanded.line)
  		  fprintf (asm_out_file, "%s %i \"%s\" 1\n",
  			   ASM_COMMENT_START, expanded.line, expanded.file);
++#ifdef __aarch64__
 +	        fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
 +	                 get_attr_type(insn) == TYPE_UNTYPED ? "true" : "false",
 +	                 contains_mem_rtx_p (PATTERN(insn)) ? "true" : "false");
++#endif
  	        output_asm_insn (string, ops);
++#ifdef __aarch64__
 +	        fprintf (asm_out_file, "// block end\n");
++#endif
  #if HAVE_AS_LINE_ZERO
  		if (expanded.file && expanded.line)
  		  fprintf (asm_out_file, "%s 0 \"\" 2\n", ASM_COMMENT_START);
-@@ -3104,7 +3108,11 @@ final_scan_insn_1 (rtx_insn *insn, FILE
+@@ -3104,7 +3112,15 @@ final_scan_insn_1 (rtx_insn *insn, FILE
  	  }
  
  	/* Output assembler code from the template.  */
++#ifdef __aarch64__
 +	fprintf (asm_out_file, "// block start: untyped %s, is_mem %s\n",
 +	         get_attr_type(insn) == TYPE_UNTYPED ? "true" : "false",
 +	         contains_mem_rtx_p (PATTERN(insn)) ? "true" : "false");
++#endif
  	output_asm_insn (templ, recog_data.operand);
++#ifdef __aarch64__
 +	fprintf (asm_out_file, "// block end\n");
++#endif
  
  	/* Some target machines need to postscan each insn after
  	   it is output.  */
 diff -uprN gcc-9.3.0.org/gcc/toplev.c gcc-9.3.0/gcc/toplev.c
---- gcc-9.3.0.org/gcc/toplev.c	2020-03-12 11:07:23.000000000 +0000
-+++ gcc-9.3.0/gcc/toplev.c	2021-02-19 02:25:11.305670024 +0000
+--- gcc-9.3.0.org/gcc/toplev.c	2020-03-12 07:07:23.000000000 -0400
++++ gcc-9.3.0/gcc/toplev.c	2023-09-07 00:25:40.874241160 -0400
 @@ -2073,6 +2073,28 @@ finalize (bool no_backend)
  	fatal_error (input_location, "error writing to %s: %m", asm_file_name);
        if (fclose (asm_out_file) != 0)
  	fatal_error (input_location, "error closing %s: %m", asm_file_name);
-+
++#ifdef __aarch64__ 
 +      pid_t child = fork();
 +      gcc_assert (child != -1);
 +      if (child == 0) {
@@ -86,7 +109,8 @@ diff -uprN gcc-9.3.0.org/gcc/toplev.c gcc-9.3.0/gcc/toplev.c
 +        printf ("gcctool execute with '%s' failed: maybe change gcctool repair level can fix it.\n", asm_file_name);
 +      }
 +      gcc_assert (exit_status == 0);
-+
++#endif
        asm_out_file = NULL;
      }
  
+
